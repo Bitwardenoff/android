@@ -6,6 +6,10 @@ import androidx.navigation.NavHostController
 import androidx.navigation.NavOptions
 import androidx.navigation.navOptions
 import androidx.navigation.navigation
+import com.x8bit.bitwarden.ui.auth.feature.checkemail.checkEmailDestination
+import com.x8bit.bitwarden.ui.auth.feature.checkemail.navigateToCheckEmail
+import com.x8bit.bitwarden.ui.auth.feature.completeregistration.completeRegistrationDestination
+import com.x8bit.bitwarden.ui.auth.feature.completeregistration.navigateToCompleteRegistration
 import com.x8bit.bitwarden.ui.auth.feature.createaccount.createAccountDestination
 import com.x8bit.bitwarden.ui.auth.feature.createaccount.navigateToCreateAccount
 import com.x8bit.bitwarden.ui.auth.feature.enterprisesignon.enterpriseSignOnDestination
@@ -23,6 +27,8 @@ import com.x8bit.bitwarden.ui.auth.feature.masterpasswordhint.masterPasswordHint
 import com.x8bit.bitwarden.ui.auth.feature.masterpasswordhint.navigateToMasterPasswordHint
 import com.x8bit.bitwarden.ui.auth.feature.setpassword.navigateToSetPassword
 import com.x8bit.bitwarden.ui.auth.feature.setpassword.setPasswordDestination
+import com.x8bit.bitwarden.ui.auth.feature.startregistration.navigateToStartRegistration
+import com.x8bit.bitwarden.ui.auth.feature.startregistration.startRegistrationDestination
 import com.x8bit.bitwarden.ui.auth.feature.twofactorlogin.navigateToTwoFactorLogin
 import com.x8bit.bitwarden.ui.auth.feature.twofactorlogin.twoFactorLoginDestination
 
@@ -49,6 +55,28 @@ fun NavGraphBuilder.authGraph(navController: NavHostController) {
                 )
             },
         )
+        startRegistrationDestination(
+            onNavigateBack = { navController.popBackStack() },
+            // TODO check necessary parameters
+            onNavigateToCompleteRegistration = { emailAddress, verificationToken, captchaToken ->
+                navController.navigateToCompleteRegistration()
+            },
+            onNavigateToCheckEmail = {emailAddress ->
+                navController.navigateToCheckEmail(emailAddress)
+            },
+            onNavigateToEnvironment = { navController.navigateToEnvironment() }
+        )
+        checkEmailDestination(
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateBackToLanding = {
+                navController.popBackStack(route = LANDING_ROUTE, inclusive = false)
+            })
+        completeRegistrationDestination(
+            onNavigateBack = { navController.popBackStack() },
+            onNavigateToLogin = { emailAddress, captchaToken ->
+                navController.navigateToLogin(emailAddress, captchaToken)
+            },
+        )
         enterpriseSignOnDestination(
             onNavigateBack = { navController.popBackStack() },
             onNavigateToSetPassword = { navController.navigateToSetPassword() },
@@ -71,6 +99,7 @@ fun NavGraphBuilder.authGraph(navController: NavHostController) {
             onNavigateToEnvironment = {
                 navController.navigateToEnvironment()
             },
+            onNavigateToStartRegistration = { navController.navigateToStartRegistration()}
         )
         loginDestination(
             onNavigateBack = { navController.popBackStack() },
