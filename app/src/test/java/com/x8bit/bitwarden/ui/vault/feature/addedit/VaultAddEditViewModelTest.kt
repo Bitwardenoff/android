@@ -14,10 +14,14 @@ import com.x8bit.bitwarden.data.auth.repository.AuthRepository
 import com.x8bit.bitwarden.data.auth.repository.model.BreachCountResult
 import com.x8bit.bitwarden.data.auth.repository.model.Organization
 import com.x8bit.bitwarden.data.auth.repository.model.UserState
+import com.x8bit.bitwarden.data.auth.repository.model.ValidatePasswordResult
+import com.x8bit.bitwarden.data.auth.repository.model.ValidatePinResult
 import com.x8bit.bitwarden.data.auth.repository.model.VaultUnlockType
 import com.x8bit.bitwarden.data.autofill.fido2.manager.Fido2CredentialManager
 import com.x8bit.bitwarden.data.autofill.fido2.model.Fido2CredentialRequest
 import com.x8bit.bitwarden.data.autofill.fido2.model.Fido2RegisterCredentialResult
+import com.x8bit.bitwarden.data.autofill.fido2.model.UserVerificationRequirement
+import com.x8bit.bitwarden.data.autofill.fido2.model.createMockFido2CredentialRequest
 import com.x8bit.bitwarden.data.autofill.model.AutofillSaveItem
 import com.x8bit.bitwarden.data.autofill.model.AutofillSelectionData
 import com.x8bit.bitwarden.data.platform.manager.PolicyManager
@@ -36,6 +40,7 @@ import com.x8bit.bitwarden.data.tools.generator.repository.util.FakeGeneratorRep
 import com.x8bit.bitwarden.data.vault.datasource.network.model.PolicyTypeJson
 import com.x8bit.bitwarden.data.vault.datasource.network.model.SyncResponseJson
 import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockCipherView
+import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockSdkFido2CredentialList
 import com.x8bit.bitwarden.data.vault.repository.VaultRepository
 import com.x8bit.bitwarden.data.vault.repository.model.CreateCipherResult
 import com.x8bit.bitwarden.data.vault.repository.model.DeleteCipherResult
@@ -51,7 +56,7 @@ import com.x8bit.bitwarden.ui.vault.feature.addedit.model.CustomFieldAction
 import com.x8bit.bitwarden.ui.vault.feature.addedit.model.CustomFieldType
 import com.x8bit.bitwarden.ui.vault.feature.addedit.model.UriItem
 import com.x8bit.bitwarden.ui.vault.feature.addedit.model.toCustomField
-import com.x8bit.bitwarden.ui.vault.feature.addedit.util.createMockPublicKeyCredentialCreationOptions
+import com.x8bit.bitwarden.ui.vault.feature.addedit.util.createMockPasskeyAttestationOptions
 import com.x8bit.bitwarden.ui.vault.feature.addedit.util.toDefaultAddTypeContent
 import com.x8bit.bitwarden.ui.vault.feature.addedit.util.toViewState
 import com.x8bit.bitwarden.ui.vault.model.VaultAddEditType
@@ -120,7 +125,13 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             getActivePolicies(type = PolicyTypeJson.PERSONAL_OWNERSHIP)
         } returns emptyList()
     }
-    private val fido2CredentialManager = mockk<Fido2CredentialManager>()
+    private val fido2CredentialManager = mockk<Fido2CredentialManager> {
+        every { isUserVerified } returns false
+        every { isUserVerified = any() } just runs
+        every { authenticationAttempts } returns 0
+        every { authenticationAttempts = any() } just runs
+        every { hasAuthenticationAttemptsRemaining() } returns true
+    }
     private val vaultRepository: VaultRepository = mockk {
         every { vaultDataStateFlow } returns mutableVaultDataFlow
         every { totpCodeFlow } returns totpTestCodeFlow
@@ -320,7 +331,7 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             fido2CredentialRequest = fido2CredentialRequest,
         )
         val fido2ContentState = fido2CredentialRequest.toDefaultAddTypeContent(
-            creationOptions = createMockPublicKeyCredentialCreationOptions(number = 1),
+            attestationOptions = createMockPasskeyAttestationOptions(number = 1),
             isIndividualVaultDisabled = false,
         )
         val vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN)
@@ -549,10 +560,7 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
                         ),
                         totpCode = "mockTotp-1",
                         canViewPassword = true,
-                        fido2CredentialCreationDateTime = R.string.created_xy.asText(
-                            "10/27/23",
-                            "12:00 PM",
-                        ),
+                        fido2CredentialCreationDateTime = null,
                     )
                         .copy(totp = "mockTotp-1"),
                 ),
@@ -684,7 +692,7 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
 
     @Suppress("MaxLineLength")
     @Test
-    fun `in add mode during fido2, SaveClick should show dialog, register credential, show toast once an item is saved, and emit ExitApp`() =
+    fun `in add mode during fido2 registration, SaveClick should show saving dialog, and request user verification when required`() =
         runTest {
             val fido2CredentialRequest = Fido2CredentialRequest(
                 userId = "mockUserId",
@@ -697,7 +705,7 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
                 SpecialCircumstance.Fido2Save(
                     fido2CredentialRequest = fido2CredentialRequest,
                 )
-            val stateWithDialog = createVaultAddItemState(
+            val stateWithSavingDialog = createVaultAddItemState(
                 vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
                 dialogState = VaultAddEditState.DialogState.Loading(
                     R.string.saving.asText(),
@@ -708,25 +716,32 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             )
                 .copy(shouldExitOnSave = true)
 
-            val stateWithName = createVaultAddItemState(
+            val stateWithNewLogin = createVaultAddItemState(
                 vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
                 commonContentViewState = createCommonContentViewState(
                     name = "mockName-1",
                 ),
             )
                 .copy(shouldExitOnSave = true)
+
             mutableVaultDataFlow.value = DataState.Loaded(
-                createVaultData(),
+                data = createVaultData(),
             )
+
             val viewModel = createAddVaultItemViewModel(
                 createSavedStateHandleWithState(
-                    state = stateWithName,
+                    state = stateWithNewLogin,
                     vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
                 ),
             )
             val mockCreateResult = Fido2RegisterCredentialResult.Success(
                 registrationResponse = "mockRegistrationResponse",
             )
+            val mockAttestationOptions = createMockPasskeyAttestationOptions(
+                number = 1,
+                userVerificationRequirement = UserVerificationRequirement.REQUIRED,
+            )
+
             coEvery {
                 fido2CredentialManager.registerFido2Credential(
                     userId = "mockUserId",
@@ -734,6 +749,11 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
                     fido2CredentialRequest = fido2CredentialRequest,
                 )
             } returns mockCreateResult
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(
+                    requestJson = fido2CredentialRequest.requestJson,
+                )
+            } returns mockAttestationOptions
             every { authRepository.activeUserId } returns "mockUserId"
 
             turbineScope {
@@ -742,101 +762,98 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
 
                 viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
 
+                assertEquals(stateWithNewLogin, stateTurbine.awaitItem())
+                assertEquals(stateWithSavingDialog, stateTurbine.awaitItem())
+                assertEquals(
+                    VaultAddEditEvent.Fido2UserVerification(isRequired = true),
+                    eventTurbine.awaitItem(),
+                )
+            }
+        }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `in add mode during fido2, SaveClick should show saving dialog, remove it once item is saved, skip user verification when not required, and emit ExitApp`() =
+        runTest {
+            val mockUserId = "mockUserId"
+            val fido2CredentialRequest = Fido2CredentialRequest(
+                userId = mockUserId,
+                requestJson = "mockRequestJson",
+                packageName = "mockPackageName",
+                signingInfo = mockk<SigningInfo>(),
+                origin = null,
+            )
+            specialCircumstanceManager.specialCircumstance =
+                SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = fido2CredentialRequest,
+                )
+            val stateWithSavingDialog = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                dialogState = VaultAddEditState.DialogState.Loading(
+                    R.string.saving.asText(),
+                ),
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                ),
+            )
+                .copy(shouldExitOnSave = true)
+
+            val stateWithName = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                ),
+            )
+                .copy(shouldExitOnSave = true)
+
+            mutableVaultDataFlow.value = DataState.Loaded(
+                createVaultData(),
+            )
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = stateWithName,
+                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                ),
+            )
+            val mockCreateResult = Fido2RegisterCredentialResult.Success("mockResponse")
+            val mockAttestationOptions = createMockPasskeyAttestationOptions(
+                number = 1,
+                userVerificationRequirement = UserVerificationRequirement.DISCOURAGED,
+            )
+            coEvery {
+                fido2CredentialManager.registerFido2Credential(
+                    userId = mockUserId,
+                    selectedCipherView = any(),
+                    fido2CredentialRequest = fido2CredentialRequest,
+                )
+            } returns mockCreateResult
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(
+                    requestJson = fido2CredentialRequest.requestJson,
+                )
+            } returns mockAttestationOptions
+            every { authRepository.activeUserId } returns mockUserId
+
+            turbineScope {
+                val stateTurbine = viewModel.stateFlow.testIn(backgroundScope)
+                val eventTurbine = viewModel.eventFlow.testIn(backgroundScope)
+
+                viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
+
                 assertEquals(stateWithName, stateTurbine.awaitItem())
-                assertEquals(stateWithDialog, stateTurbine.awaitItem())
+                assertEquals(stateWithSavingDialog, stateTurbine.awaitItem())
                 assertEquals(
                     VaultAddEditEvent.ShowToast(R.string.item_updated.asText()),
                     eventTurbine.awaitItem(),
                 )
+                assertEquals(stateWithName, stateTurbine.awaitItem())
                 assertEquals(
-                    VaultAddEditEvent.CompleteFido2Registration(result = mockCreateResult),
+                    VaultAddEditEvent.CompleteFido2Registration(mockCreateResult),
                     eventTurbine.awaitItem(),
                 )
-                assertEquals(stateWithName, stateTurbine.awaitItem())
-
                 coVerify(exactly = 1) {
                     fido2CredentialManager.registerFido2Credential(
-                        userId = "mockUserId",
-                        fido2CredentialRequest = fido2CredentialRequest,
-                        selectedCipherView = any(),
-                    )
-                }
-            }
-        }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `in add mode during fido2, SaveClick should show dialog, register credential, show toast on error, and emit ExitApp when result is Error`() =
-        runTest {
-            val fido2CredentialRequest = Fido2CredentialRequest(
-                userId = "mockUserId",
-                requestJson = "mockRequestJson",
-                packageName = "mockPackageName",
-                signingInfo = mockk<SigningInfo>(),
-                origin = null,
-            )
-            specialCircumstanceManager.specialCircumstance =
-                SpecialCircumstance.Fido2Save(
-                    fido2CredentialRequest = fido2CredentialRequest,
-                )
-            val stateWithDialog = createVaultAddItemState(
-                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
-                dialogState = VaultAddEditState.DialogState.Loading(
-                    R.string.saving.asText(),
-                ),
-                commonContentViewState = createCommonContentViewState(
-                    name = "mockName-1",
-                ),
-            )
-                .copy(shouldExitOnSave = true)
-
-            val stateWithName = createVaultAddItemState(
-                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
-                commonContentViewState = createCommonContentViewState(
-                    name = "mockName-1",
-                ),
-            )
-                .copy(shouldExitOnSave = true)
-            mutableVaultDataFlow.value = DataState.Loaded(
-                createVaultData(),
-            )
-            val viewModel = createAddVaultItemViewModel(
-                createSavedStateHandleWithState(
-                    state = stateWithName,
-                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
-                ),
-            )
-            val mockCreateResult = Fido2RegisterCredentialResult.Error
-            coEvery {
-                fido2CredentialManager.registerFido2Credential(
-                    userId = "mockUserId",
-                    selectedCipherView = any(),
-                    fido2CredentialRequest = fido2CredentialRequest,
-                )
-            } returns mockCreateResult
-            every { authRepository.activeUserId } returns "mockUserId"
-
-            turbineScope {
-                val stateTurbine = viewModel.stateFlow.testIn(backgroundScope)
-                val eventTurbine = viewModel.eventFlow.testIn(backgroundScope)
-
-                viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
-
-                assertEquals(stateWithName, stateTurbine.awaitItem())
-                assertEquals(stateWithDialog, stateTurbine.awaitItem())
-                assertEquals(
-                    VaultAddEditEvent.ShowToast(R.string.an_error_has_occurred.asText()),
-                    eventTurbine.awaitItem(),
-                )
-                assertEquals(
-                    VaultAddEditEvent.CompleteFido2Registration(result = mockCreateResult),
-                    eventTurbine.awaitItem(),
-                )
-                assertEquals(stateWithName, stateTurbine.awaitItem())
-
-                coVerify(exactly = 1) {
-                    fido2CredentialManager.registerFido2Credential(
-                        userId = "mockUserId",
+                        userId = mockUserId,
                         selectedCipherView = any(),
                         fido2CredentialRequest = fido2CredentialRequest,
                     )
@@ -846,30 +863,13 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
 
     @Suppress("MaxLineLength")
     @Test
-    fun `in add mode during fido2, SaveClick should show saving dialog, register credential, dismiss dialog, show toast on error, and emit ExitApp when activeUserId is null`() =
+    fun `in add mode during fido2, SaveClick should skip user verification when user is verified`() =
         runTest {
-            val fido2CredentialRequest = Fido2CredentialRequest(
-                userId = "mockUserId",
-                requestJson = "mockRequestJson",
-                packageName = "mockPackageName",
-                signingInfo = mockk<SigningInfo>(),
-                origin = null,
-            )
+            val fido2CredentialRequest = createMockFido2CredentialRequest(number = 1)
             specialCircumstanceManager.specialCircumstance =
                 SpecialCircumstance.Fido2Save(
                     fido2CredentialRequest = fido2CredentialRequest,
                 )
-            val stateWithDialog = createVaultAddItemState(
-                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
-                dialogState = VaultAddEditState.DialogState.Loading(
-                    R.string.saving.asText(),
-                ),
-                commonContentViewState = createCommonContentViewState(
-                    name = "mockName-1",
-                ),
-            )
-                .copy(shouldExitOnSave = true)
-
             val stateWithName = createVaultAddItemState(
                 vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
                 commonContentViewState = createCommonContentViewState(
@@ -877,6 +877,7 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
                 ),
             )
                 .copy(shouldExitOnSave = true)
+
             mutableVaultDataFlow.value = DataState.Loaded(
                 createVaultData(),
             )
@@ -886,41 +887,166 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
                     vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
                 ),
             )
-            val mockCreateResult = Fido2RegisterCredentialResult.Error
+
+            every { authRepository.activeUserId } returns fido2CredentialRequest.userId
+            every { fido2CredentialManager.isUserVerified } returns true
             coEvery {
                 fido2CredentialManager.registerFido2Credential(
-                    userId = "mockUserId",
+                    userId = fido2CredentialRequest.userId,
+                    fido2CredentialRequest = fido2CredentialRequest,
                     selectedCipherView = any(),
+                )
+            } returns Fido2RegisterCredentialResult.Success(registrationResponse = "mockResponse")
+
+            viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
+
+            coVerify {
+                fido2CredentialManager.registerFido2Credential(
+                    userId = fido2CredentialRequest.userId,
+                    fido2CredentialRequest = fido2CredentialRequest,
+                    selectedCipherView = any(),
+                )
+            }
+
+            verify(exactly = 0) {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(any())
+            }
+        }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `in add mode during fido2, SaveClick should show fido2 error dialog when create options are null`() =
+        runTest {
+            val mockUserId = "mockUserId"
+            val fido2CredentialRequest = createMockFido2CredentialRequest(number = 1)
+            specialCircumstanceManager.specialCircumstance =
+                SpecialCircumstance.Fido2Save(
                     fido2CredentialRequest = fido2CredentialRequest,
                 )
-            } returns mockCreateResult
-            every { authRepository.activeUserId } returns null
+            val stateWithName = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                ),
+            )
+                .copy(shouldExitOnSave = true)
+
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(
+                    requestJson = fido2CredentialRequest.requestJson,
+                )
+            } returns null
+
+            mutableVaultDataFlow.value = DataState.Loaded(
+                createVaultData(),
+            )
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = stateWithName,
+                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                ),
+            )
+
+            viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `in add mode during fido2, SaveClick should emit fido user verification as optional when verification is PREFERRED`() =
+        runTest {
+            val fido2CredentialRequest = createMockFido2CredentialRequest(number = 1)
+            specialCircumstanceManager.specialCircumstance =
+                SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = fido2CredentialRequest,
+                )
+            val stateWithName = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                ),
+            )
+                .copy(shouldExitOnSave = true)
+
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(
+                    requestJson = fido2CredentialRequest.requestJson,
+                )
+            } returns createMockPasskeyAttestationOptions(
+                number = 1,
+                userVerificationRequirement = UserVerificationRequirement.PREFERRED,
+            )
+            mutableVaultDataFlow.value = DataState.Loaded(
+                createVaultData(),
+            )
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = stateWithName,
+                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                ),
+            )
+
+            viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
 
             turbineScope {
-                val stateTurbine = viewModel.stateFlow.testIn(backgroundScope)
                 val eventTurbine = viewModel.eventFlow.testIn(backgroundScope)
-
-                viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
-
-                assertEquals(stateWithName, stateTurbine.awaitItem())
-                assertEquals(stateWithDialog, stateTurbine.awaitItem())
                 assertEquals(
-                    VaultAddEditEvent.ShowToast(R.string.an_error_has_occurred.asText()),
+                    VaultAddEditEvent.Fido2UserVerification(isRequired = false),
                     eventTurbine.awaitItem(),
                 )
+            }
+        }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `in add mode during fido2, SaveClick should emit fido user verification as required when request user verification option is REQUIRED`() =
+        runTest {
+            val fido2CredentialRequest = createMockFido2CredentialRequest(number = 1)
+            specialCircumstanceManager.specialCircumstance =
+                SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = fido2CredentialRequest,
+                )
+            val stateWithName = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                ),
+            )
+                .copy(shouldExitOnSave = true)
+
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(
+                    requestJson = fido2CredentialRequest.requestJson,
+                )
+            } returns createMockPasskeyAttestationOptions(
+                number = 1,
+                userVerificationRequirement = UserVerificationRequirement.REQUIRED,
+            )
+            mutableVaultDataFlow.value = DataState.Loaded(
+                createVaultData(),
+            )
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = stateWithName,
+                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                ),
+            )
+
+            viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
+
+            turbineScope {
+                val eventTurbine = viewModel.eventFlow.testIn(backgroundScope)
                 assertEquals(
-                    VaultAddEditEvent.CompleteFido2Registration(result = mockCreateResult),
+                    VaultAddEditEvent.Fido2UserVerification(isRequired = true),
                     eventTurbine.awaitItem(),
                 )
-                assertEquals(stateWithName, stateTurbine.awaitItem())
-
-                coVerify(exactly = 0) {
-                    fido2CredentialManager.registerFido2Credential(
-                        userId = "mockUserId",
-                        selectedCipherView = any(),
-                        fido2CredentialRequest = fido2CredentialRequest,
-                    )
-                }
             }
         }
 
@@ -1228,6 +1354,181 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             }
         }
 
+    @Suppress("MaxLineLength")
+    @Test
+    fun `in edit mode during FIDO 2 registration, SaveClick should display ConfirmOverwriteExistingPasskeyDialog when original cipher has a passkey`() {
+        val cipherView = createMockCipherView(
+            number = 1,
+            fido2Credentials = createMockSdkFido2CredentialList(number = 1),
+        )
+        val vaultAddEditType = VaultAddEditType.EditItem(DEFAULT_EDIT_ITEM_ID)
+        val stateWithName = createVaultAddItemState(
+            vaultAddEditType = vaultAddEditType,
+            commonContentViewState = createCommonContentViewState(
+                name = "mockName-1",
+                originalCipher = cipherView,
+                customFieldData = listOf(
+                    VaultAddEditState.Custom.HiddenField(
+                        itemId = "testId",
+                        name = "mockName-1",
+                        value = "mockValue-1",
+                    ),
+                ),
+                notes = "mockNotes-1",
+            ),
+        )
+        specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+            fido2CredentialRequest = createMockFido2CredentialRequest(number = 1),
+        )
+        every {
+            cipherView.toViewState(
+                isClone = false,
+                isIndividualVaultDisabled = false,
+                resourceManager = resourceManager,
+                clock = fixedClock,
+            )
+        } returns stateWithName.viewState
+        mutableVaultDataFlow.value = DataState.Loaded(
+            createVaultData(cipherView = cipherView),
+        )
+
+        val viewModel = createAddVaultItemViewModel(
+            createSavedStateHandleWithState(
+                state = stateWithName,
+                vaultAddEditType = vaultAddEditType,
+            ),
+        )
+
+        viewModel.trySendAction(VaultAddEditAction.Common.SaveClick)
+
+        assertEquals(
+            VaultAddEditState.DialogState.OverwritePasskeyConfirmationPrompt,
+            viewModel.stateFlow.value.dialog,
+        )
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `ConfirmOverwriteExistingPasskeyClick should register credential when user is verified`() {
+        val cipherView = createMockCipherView(
+            number = 1,
+            fido2Credentials = createMockSdkFido2CredentialList(number = 1),
+        )
+        val vaultAddEditType = VaultAddEditType.EditItem(DEFAULT_EDIT_ITEM_ID)
+        val stateWithName = createVaultAddItemState(
+            vaultAddEditType = vaultAddEditType,
+            commonContentViewState = createCommonContentViewState(
+                name = "mockName-1",
+                originalCipher = cipherView,
+                notes = "mockNotes-1",
+            ),
+        )
+        val mockFidoRequest = createMockFido2CredentialRequest(number = 1)
+        specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+            fido2CredentialRequest = mockFidoRequest,
+        )
+        coEvery {
+            fido2CredentialManager.registerFido2Credential(
+                userId = mockFidoRequest.userId,
+                fido2CredentialRequest = mockFidoRequest,
+                selectedCipherView = any(),
+            )
+        } returns Fido2RegisterCredentialResult.Success("mockResponse")
+        every { authRepository.activeUserId } returns mockFidoRequest.userId
+        every {
+            cipherView.toViewState(
+                isClone = false,
+                isIndividualVaultDisabled = false,
+                resourceManager = resourceManager,
+                clock = fixedClock,
+            )
+        } returns stateWithName.viewState
+        every { fido2CredentialManager.isUserVerified } returns true
+
+        mutableVaultDataFlow.value = DataState.Loaded(
+            createVaultData(cipherView = cipherView),
+        )
+
+        val viewModel = createAddVaultItemViewModel(
+            createSavedStateHandleWithState(
+                state = stateWithName,
+                vaultAddEditType = vaultAddEditType,
+            ),
+        )
+        viewModel.trySendAction(VaultAddEditAction.Common.ConfirmOverwriteExistingPasskeyClick)
+
+        coVerify {
+            fido2CredentialManager.isUserVerified
+            fido2CredentialManager.registerFido2Credential(
+                userId = mockFidoRequest.userId,
+                fido2CredentialRequest = mockFidoRequest,
+                selectedCipherView = any(),
+            )
+        }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `ConfirmOverwriteExistingPasskeyClick should check if user verification is required`() =
+        runTest {
+            val cipherView = createMockCipherView(
+                number = 1,
+                fido2Credentials = createMockSdkFido2CredentialList(number = 1),
+            )
+            val vaultAddEditType = VaultAddEditType.EditItem(DEFAULT_EDIT_ITEM_ID)
+            val stateWithName = createVaultAddItemState(
+                vaultAddEditType = vaultAddEditType,
+                commonContentViewState = createCommonContentViewState(
+                    name = "mockName-1",
+                    originalCipher = cipherView,
+                    customFieldData = listOf(
+                        VaultAddEditState.Custom.HiddenField(
+                            itemId = "testId",
+                            name = "mockName-1",
+                            value = "mockValue-1",
+                        ),
+                    ),
+                    notes = "mockNotes-1",
+                ),
+            )
+            val mockFidoRequest = createMockFido2CredentialRequest(number = 1)
+            specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+                fido2CredentialRequest = mockFidoRequest,
+            )
+            every {
+                cipherView.toViewState(
+                    isClone = false,
+                    isIndividualVaultDisabled = false,
+                    resourceManager = resourceManager,
+                    clock = fixedClock,
+                )
+            } returns stateWithName.viewState
+            every { fido2CredentialManager.isUserVerified } returns false
+            every {
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(any())
+            } returns createMockPasskeyAttestationOptions(
+                number = 1,
+                userVerificationRequirement = UserVerificationRequirement.REQUIRED,
+            )
+
+            mutableVaultDataFlow.value = DataState.Loaded(
+                createVaultData(cipherView = cipherView),
+            )
+
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = stateWithName,
+                    vaultAddEditType = vaultAddEditType,
+                ),
+            )
+            viewModel.trySendAction(VaultAddEditAction.Common.ConfirmOverwriteExistingPasskeyClick)
+
+            coVerify {
+                fido2CredentialManager.isUserVerified
+                fido2CredentialManager.getPasskeyAttestationOptionsOrNull(mockFidoRequest.requestJson)
+            }
+        }
+
     @Test
     fun `Saving item with an empty name field will cause a dialog to show up`() = runTest {
         mutableVaultDataFlow.value = DataState.Loaded(
@@ -1286,6 +1587,34 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             assertEquals(null, awaitItem().dialog)
         }
     }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `DismissFido2ErrorDialogClick should clear the dialog state then complete FIDO 2 create`() =
+        runTest {
+            val errorState = createVaultAddItemState(
+                vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                dialogState = VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                ),
+            )
+            val viewModel = createAddVaultItemViewModel(
+                createSavedStateHandleWithState(
+                    state = errorState,
+                    vaultAddEditType = VaultAddEditType.AddItem(VaultItemCipherType.LOGIN),
+                ),
+            )
+            viewModel.trySendAction(VaultAddEditAction.Common.Fido2ErrorDialogDismissed)
+            viewModel.eventFlow.test {
+                assertNull(viewModel.stateFlow.value.dialog)
+                assertEquals(
+                    VaultAddEditEvent.CompleteFido2Registration(
+                        result = Fido2RegisterCredentialResult.Error,
+                    ),
+                    awaitItem(),
+                )
+            }
+        }
 
     @Test
     fun `TypeOptionSelect LOGIN should switch to LoginItem`() = runTest {
@@ -2254,15 +2583,15 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             )
             viewModel = VaultAddEditViewModel(
                 savedStateHandle = secureNotesInitialSavedStateHandle,
-                clipboardManager = clipboardManager,
-                vaultRepository = vaultRepository,
-                generatorRepository = generatorRepository,
-                specialCircumstanceManager = specialCircumstanceManager,
-                policyManager = policyManager,
-                resourceManager = resourceManager,
                 authRepository = authRepository,
+                clipboardManager = clipboardManager,
+                policyManager = policyManager,
+                vaultRepository = vaultRepository,
                 fido2CredentialManager = fido2CredentialManager,
+                generatorRepository = generatorRepository,
                 settingsRepository = settingsRepository,
+                specialCircumstanceManager = specialCircumstanceManager,
+                resourceManager = resourceManager,
                 clock = fixedClock,
                 organizationEventManager = organizationEventManager,
             )
@@ -2750,7 +3079,618 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
             )
             assertEquals(expectedState, viewModel.stateFlow.value)
         }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationLockout should set isUserVerified to false and display Fido2ErrorDialog`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationLockOut)
+
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationCancelled should clear dialog state, set isUserVerified to false, and emit CompleteFido2Create with cancelled result`() =
+            runTest {
+                viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationCancelled)
+
+                verify { fido2CredentialManager.isUserVerified = false }
+                assertNull(viewModel.stateFlow.value.dialog)
+                viewModel.eventFlow.test {
+                    assertEquals(
+                        VaultAddEditEvent.CompleteFido2Registration(
+                            result = Fido2RegisterCredentialResult.Cancelled,
+                        ),
+                        awaitItem(),
+                    )
+                }
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationFail should set isUserVerified to false, and display Fido2ErrorDialog`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationFail)
+
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationNotSupported should display Fido2ErrorDialog when active account not found`() {
+            mutableUserStateFlow.value = null
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationNotSupported)
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationNotSupported should display Fido2PinPrompt when user has pin`() {
+            val userState = createUserState()
+            mutableUserStateFlow.value = userState.copy(
+                accounts = listOf(
+                    userState.accounts.first().copy(
+                        vaultUnlockType = VaultUnlockType.PIN,
+                    ),
+                ),
+            )
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationNotSupported)
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationNotSupported should display Fido2MasterPasswordPrompt when user has password but no pin`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationNotSupported)
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2MasterPasswordPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationNotSupported should display Fido2PinSetUpPrompt when user has no password or pin`() {
+            val userState = createUserState()
+            mutableUserStateFlow.value = userState.copy(
+                accounts = listOf(
+                    userState.accounts.first().copy(
+                        vaultUnlockType = VaultUnlockType.MASTER_PASSWORD,
+                        trustedDevice = UserState.TrustedDevice(
+                            isDeviceTrusted = true,
+                            hasMasterPassword = false,
+                            hasAdminApproval = true,
+                            hasLoginApprovingDevice = true,
+                            hasResetPasswordPermission = true,
+                        ),
+                    ),
+                ),
+            )
+
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationNotSupported)
+
+            verify { fido2CredentialManager.isUserVerified = false }
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinSetUpPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `MasterPasswordFido2VerificationSubmit should display Fido2Error when password verification fails`() {
+            val password = "password"
+            coEvery {
+                authRepository.validatePassword(password = password)
+            } returns ValidatePasswordResult.Error
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(
+                    password = password,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePassword(password = password)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `MasterPasswordFido2VerificationSubmit should display Fido2MasterPasswordError when user has retries remaining`() {
+            val password = "password"
+            coEvery {
+                authRepository.validatePassword(password = password)
+            } returns ValidatePasswordResult.Success(isValid = false)
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(
+                    password = password,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2MasterPasswordError,
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePassword(password = password)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `MasterPasswordFido2VerificationSubmit should display Fido2Error when user has no retries remaining`() {
+            val password = "password"
+            every { fido2CredentialManager.hasAuthenticationAttemptsRemaining() } returns false
+            coEvery {
+                authRepository.validatePassword(password = password)
+            } returns ValidatePasswordResult.Success(isValid = false)
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(
+                    password = password,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePassword(password = password)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `MasterPasswordFido2VerificationSubmit should register credential when password authenticated successfully`() =
+            runTest {
+                val password = "password"
+                coEvery {
+                    authRepository.validatePassword(password = password)
+                } returns ValidatePasswordResult.Success(isValid = true)
+
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(
+                        password = password,
+                    ),
+                )
+                coVerify {
+                    authRepository.validatePassword(password = password)
+                }
+            }
+
+        @Test
+        fun `RetryFido2PasswordVerificationClick should display Fido2MasterPasswordPrompt`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.RetryFido2PasswordVerificationClick)
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2MasterPasswordPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `PinFido2VerificationSubmit should display Fido2Error when Pin verification fails`() {
+            val pin = "PIN"
+            coEvery {
+                authRepository.validatePin(pin = pin)
+            } returns ValidatePinResult.Error
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2VerificationSubmit(
+                    pin = pin,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePin(pin = pin)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `PinFido2VerificationSubmit should display Fido2PinError when user has retries remaining`() {
+            val pin = "PIN"
+            coEvery {
+                authRepository.validatePin(pin = pin)
+            } returns ValidatePinResult.Success(isValid = false)
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2VerificationSubmit(
+                    pin = pin,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinError,
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePin(pin = pin)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `PinFido2VerificationSubmit should display Fido2Error when user has no retries remaining`() {
+            val pin = "PIN"
+            every { fido2CredentialManager.hasAuthenticationAttemptsRemaining() } returns false
+            coEvery {
+                authRepository.validatePin(pin = pin)
+            } returns ValidatePinResult.Success(isValid = false)
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2VerificationSubmit(
+                    pin = pin,
+                ),
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+            coVerify {
+                authRepository.validatePin(pin = pin)
+            }
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `PinFido2VerificationSubmit should register credential when pin authenticated successfully`() {
+            val pin = "PIN"
+            coEvery {
+                authRepository.validatePin(pin = pin)
+            } returns ValidatePinResult.Success(isValid = true)
+
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2VerificationSubmit(
+                    pin = pin,
+                ),
+            )
+            coVerify {
+                authRepository.validatePin(pin = pin)
+            }
+        }
+
+        @Test
+        fun `RetryFido2PinVerificationClick should display Fido2PinPrompt`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.RetryFido2PinVerificationClick)
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Test
+        fun `PinFido2SetUpSubmit should display Fido2PinSetUpError for empty PIN`() {
+            val pin = ""
+            viewModel.trySendAction(VaultAddEditAction.Common.PinFido2SetUpSubmit(pin = pin))
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinSetUpError,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Test
+        fun `PinFido2SetUpSubmit should save PIN and register credential for non-empty PIN`() {
+            val pin = "PIN"
+            every {
+                settingsRepository.storeUnlockPin(
+                    pin = pin,
+                    shouldRequireMasterPasswordOnRestart = false,
+                )
+            } just runs
+
+            viewModel.trySendAction(VaultAddEditAction.Common.PinFido2SetUpSubmit(pin = pin))
+
+            verify(exactly = 1) {
+                settingsRepository.storeUnlockPin(
+                    pin = pin,
+                    shouldRequireMasterPasswordOnRestart = false,
+                )
+            }
+         }
+
+        @Test
+        fun `PinFido2SetUpRetryClick should display Fido2PinSetUpPrompt`() {
+            viewModel.trySendAction(VaultAddEditAction.Common.PinFido2SetUpRetryClick)
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2PinSetUpPrompt,
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Test
+        fun `DismissFido2VerificationDialogClick should display Fido2ErrorDialog`() {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.DismissFido2VerificationDialogClick,
+            )
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationSuccess should display Fido2ErrorDialog when SpecialCircumstance is null`() =
+            runTest {
+                specialCircumstanceManager.specialCircumstance = null
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns Fido2RegisterCredentialResult.Success(
+                    registrationResponse = "mockResponse",
+                )
+
+                viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationSuccess)
+
+                assertEquals(
+                    VaultAddEditState.DialogState.Fido2Error(
+                        message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                    ),
+                    viewModel.stateFlow.value.dialog,
+                )
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationSuccess should display Fido2ErrorDialog when Fido2Request is null`() =
+            runTest {
+                specialCircumstanceManager.specialCircumstance =
+                    SpecialCircumstance.AutofillSave(
+                        AutofillSaveItem.Login(
+                            username = "mockUsername",
+                            password = "mockPassword",
+                            uri = "mockUri",
+                        ),
+                    )
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns Fido2RegisterCredentialResult.Success(
+                    registrationResponse = "mockResponse",
+                )
+
+                viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationSuccess)
+
+                assertEquals(
+                    VaultAddEditState.DialogState.Fido2Error(
+                        message = R.string.passkey_operation_failed_because_user_could_not_be_verified.asText(),
+                    ),
+                    viewModel.stateFlow.value.dialog,
+                )
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationSuccess should display Fido2ErrorDialog when activeUserId is null`() {
+            every { authRepository.activeUserId } returns null
+            specialCircumstanceManager.specialCircumstance =
+                SpecialCircumstance.Fido2Save(createMockFido2CredentialRequest(number = 1))
+
+            viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationSuccess)
+
+            assertEquals(
+                VaultAddEditState.DialogState.Fido2Error(
+                    message = R.string.passkey_operation_failed_because_user_could_not_be_verified
+                        .asText(),
+                ),
+                viewModel.stateFlow.value.dialog,
+            )
+        }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `UserVerificationSuccess should set isUserVerified to true, and register FIDO 2 credential`() =
+            runTest {
+                val mockRequest = createMockFido2CredentialRequest(number = 1)
+                val mockResult = Fido2RegisterCredentialResult.Success(
+                    registrationResponse = "mockResponse",
+                )
+                specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = mockRequest,
+                )
+                every { authRepository.activeUserId } returns "activeUserId"
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns mockResult
+                every { fido2CredentialManager.isUserVerified } returns true
+
+                viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationSuccess)
+
+                coVerify {
+                    fido2CredentialManager.isUserVerified = true
+                    fido2CredentialManager.registerFido2Credential(
+                        userId = any(),
+                        fido2CredentialRequest = mockRequest,
+                        selectedCipherView = any(),
+                    )
+                }
+
+                viewModel.eventFlow.test {
+                    assertEquals(
+                        VaultAddEditEvent.ShowToast(R.string.item_updated.asText()),
+                        awaitItem(),
+                    )
+                    assertEquals(
+                        VaultAddEditEvent.CompleteFido2Registration(mockResult),
+                        awaitItem(),
+                    )
+                }
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `Fido2RegisterCredentialResult Error should show toast and emit CompleteFido2Registration result`() =
+            runTest {
+                val mockRequest = createMockFido2CredentialRequest(number = 1)
+                val mockResult = Fido2RegisterCredentialResult.Error
+                specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = mockRequest,
+                )
+                every { authRepository.activeUserId } returns "activeUserId"
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns mockResult
+
+                viewModel.trySendAction(
+                    VaultAddEditAction.Internal.Fido2RegisterCredentialResultReceive(
+                        mockResult,
+                    ),
+                )
+
+                viewModel.eventFlow.test {
+                    assertEquals(
+                        VaultAddEditEvent.ShowToast(R.string.an_error_has_occurred.asText()),
+                        awaitItem(),
+                    )
+
+                    assertEquals(
+                        VaultAddEditEvent.CompleteFido2Registration(mockResult),
+                        awaitItem(),
+                    )
+                }
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `Fido2RegisterCredentialResult Success should show toast and emit CompleteFido2Registration result`() =
+            runTest {
+                val mockRequest = createMockFido2CredentialRequest(number = 1)
+                val mockResult = Fido2RegisterCredentialResult.Success(
+                    registrationResponse = "mockResponse",
+                )
+                specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = mockRequest,
+                )
+                every { authRepository.activeUserId } returns "activeUserId"
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns mockResult
+
+                viewModel.trySendAction(
+                    VaultAddEditAction.Internal.Fido2RegisterCredentialResultReceive(
+                        mockResult,
+                    ),
+                )
+
+                viewModel.eventFlow.test {
+                    assertEquals(
+                        VaultAddEditEvent.ShowToast(R.string.item_updated.asText()),
+                        awaitItem(),
+                    )
+
+                    assertEquals(
+                        VaultAddEditEvent.CompleteFido2Registration(mockResult),
+                        awaitItem(),
+                    )
+                }
+            }
+
+        @Suppress("MaxLineLength")
+        @Test
+        fun `Fido2RegisterCredentialResult Cancelled should emit CompleteFido2Registration result`() =
+            runTest {
+                val mockRequest = createMockFido2CredentialRequest(number = 1)
+                val mockResult = Fido2RegisterCredentialResult.Cancelled
+                specialCircumstanceManager.specialCircumstance = SpecialCircumstance.Fido2Save(
+                    fido2CredentialRequest = mockRequest,
+                )
+                every { authRepository.activeUserId } returns "activeUserId"
+                coEvery {
+                    fido2CredentialManager.registerFido2Credential(
+                        any(),
+                        any(),
+                        any(),
+                    )
+                } returns mockResult
+
+                viewModel.trySendAction(
+                    VaultAddEditAction.Internal.Fido2RegisterCredentialResultReceive(
+                        mockResult,
+                    ),
+                )
+
+                viewModel.eventFlow.test {
+                    assertEquals(
+                        VaultAddEditEvent.CompleteFido2Registration(mockResult),
+                        awaitItem(),
+                    )
+                }
+            }
     }
+
     //region Helper functions
 
     @Suppress("MaxLineLength")
@@ -2859,15 +3799,15 @@ class VaultAddEditViewModelTest : BaseViewModelTest() {
     ): VaultAddEditViewModel =
         VaultAddEditViewModel(
             savedStateHandle = savedStateHandle,
-            clipboardManager = bitwardenClipboardManager,
-            vaultRepository = vaultRepo,
-            generatorRepository = generatorRepo,
-            specialCircumstanceManager = specialCircumstanceManager,
-            policyManager = policyManager,
-            resourceManager = bitwardenResourceManager,
-            fido2CredentialManager = fido2CredentialManager,
             authRepository = authRepository,
+            clipboardManager = bitwardenClipboardManager,
+            policyManager = policyManager,
+            vaultRepository = vaultRepo,
+            fido2CredentialManager = fido2CredentialManager,
+            generatorRepository = generatorRepo,
             settingsRepository = settingsRepository,
+            specialCircumstanceManager = specialCircumstanceManager,
+            resourceManager = bitwardenResourceManager,
             clock = clock,
             organizationEventManager = organizationEventManager,
         )

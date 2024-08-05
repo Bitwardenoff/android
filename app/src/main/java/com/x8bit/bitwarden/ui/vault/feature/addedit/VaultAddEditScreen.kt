@@ -35,14 +35,20 @@ import com.x8bit.bitwarden.ui.platform.components.content.BitwardenLoadingConten
 import com.x8bit.bitwarden.ui.platform.components.dialog.BasicDialogState
 import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenBasicDialog
 import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenLoadingDialog
+import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenMasterPasswordDialog
+import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenOverwritePasskeyConfirmationDialog
+import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenPinDialog
 import com.x8bit.bitwarden.ui.platform.components.dialog.BitwardenTwoButtonDialog
 import com.x8bit.bitwarden.ui.platform.components.dialog.LoadingDialogState
 import com.x8bit.bitwarden.ui.platform.components.scaffold.BitwardenScaffold
 import com.x8bit.bitwarden.ui.platform.components.util.rememberVectorPainter
+import com.x8bit.bitwarden.ui.platform.composition.LocalBiometricsManager
 import com.x8bit.bitwarden.ui.platform.composition.LocalExitManager
 import com.x8bit.bitwarden.ui.platform.composition.LocalFido2CompletionManager
 import com.x8bit.bitwarden.ui.platform.composition.LocalIntentManager
 import com.x8bit.bitwarden.ui.platform.composition.LocalPermissionsManager
+import com.x8bit.bitwarden.ui.platform.feature.settings.accountsecurity.PinInputDialog
+import com.x8bit.bitwarden.ui.platform.manager.biometrics.BiometricsManager
 import com.x8bit.bitwarden.ui.platform.manager.exit.ExitManager
 import com.x8bit.bitwarden.ui.platform.manager.intent.IntentManager
 import com.x8bit.bitwarden.ui.platform.manager.permissions.PermissionsManager
@@ -52,6 +58,7 @@ import com.x8bit.bitwarden.ui.vault.feature.addedit.handlers.VaultAddEditCardTyp
 import com.x8bit.bitwarden.ui.vault.feature.addedit.handlers.VaultAddEditCommonHandlers
 import com.x8bit.bitwarden.ui.vault.feature.addedit.handlers.VaultAddEditIdentityTypeHandlers
 import com.x8bit.bitwarden.ui.vault.feature.addedit.handlers.VaultAddEditLoginTypeHandlers
+import com.x8bit.bitwarden.ui.vault.feature.addedit.handlers.VaultAddEditUserVerificationHandlers
 
 /**
  * Top level composable for the vault add item screen.
@@ -67,6 +74,7 @@ fun VaultAddEditScreen(
     intentManager: IntentManager = LocalIntentManager.current,
     exitManager: ExitManager = LocalExitManager.current,
     fido2CompletionManager: Fido2CompletionManager = LocalFido2CompletionManager.current,
+    biometricsManager: BiometricsManager = LocalBiometricsManager.current,
     onNavigateToManualCodeEntryScreen: () -> Unit,
     onNavigateToGeneratorModal: (GeneratorMode.Modal) -> Unit,
     onNavigateToAttachments: (cipherId: String) -> Unit,
@@ -75,6 +83,9 @@ fun VaultAddEditScreen(
     val state by viewModel.stateFlow.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val resources = context.resources
+    val userVerificationHandlers = remember(viewModel) {
+        VaultAddEditUserVerificationHandlers.create(viewModel = viewModel)
+    }
 
     EventsEffect(viewModel = viewModel) { event ->
         when (event) {
@@ -115,6 +126,16 @@ fun VaultAddEditScreen(
             is VaultAddEditEvent.CompleteFido2Registration -> {
                 fido2CompletionManager.completeFido2Registration(event.result)
             }
+
+            is VaultAddEditEvent.Fido2UserVerification -> {
+                biometricsManager.promptUserVerification(
+                    onSuccess = userVerificationHandlers.onUserVerificationSuccess,
+                    onCancel = userVerificationHandlers.onUserVerificationCancelled,
+                    onError = userVerificationHandlers.onUserVerificationFail,
+                    onLockOut = userVerificationHandlers.onUserVerificationLockOut,
+                    onNotSupported = userVerificationHandlers.onUserVerificationNotSupported,
+                )
+            }
         }
     }
 
@@ -147,6 +168,65 @@ fun VaultAddEditScreen(
         },
         onAutofillDismissRequest = remember(viewModel) {
             { viewModel.trySendAction(VaultAddEditAction.Common.InitialAutofillDialogDismissed) }
+        },
+        onFido2ErrorDismiss = remember(viewModel) {
+            { viewModel.trySendAction(VaultAddEditAction.Common.Fido2ErrorDialogDismissed) }
+        },
+        onConfirmOverwriteExistingPasskey = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    action = VaultAddEditAction.Common.ConfirmOverwriteExistingPasskeyClick,
+                )
+            }
+        },
+        onSubmitMasterPasswordFido2Verification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    action = VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(it),
+                )
+            }
+        },
+        onRetryFido2PasswordVerification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    action = VaultAddEditAction.Common.RetryFido2PasswordVerificationClick,
+                )
+            }
+        },
+        onSubmitPinFido2Verification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.PinFido2VerificationSubmit(it),
+                )
+            }
+        },
+        onRetryFido2PinVerification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.RetryFido2PinVerificationClick,
+                )
+            }
+        },
+        onSubmitPinSetUpFido2Verification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.PinFido2SetUpSubmit(it),
+                )
+            }
+        },
+        onRetryPinSetUpFido2Verification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.PinFido2SetUpRetryClick,
+                )
+            }
+        },
+        onDismissFido2Verification = remember(viewModel) {
+            {
+                viewModel.trySendAction(
+                    VaultAddEditAction.Common.DismissFido2VerificationDialogClick,
+                )
+            }
         },
     )
 
@@ -276,11 +356,21 @@ fun VaultAddEditScreen(
     }
 }
 
+@Suppress("LongMethod")
 @Composable
 private fun VaultAddEditItemDialogs(
     dialogState: VaultAddEditState.DialogState?,
     onDismissRequest: () -> Unit,
     onAutofillDismissRequest: () -> Unit,
+    onFido2ErrorDismiss: () -> Unit,
+    onConfirmOverwriteExistingPasskey: () -> Unit,
+    onSubmitMasterPasswordFido2Verification: (password: String) -> Unit,
+    onRetryFido2PasswordVerification: () -> Unit,
+    onSubmitPinFido2Verification: (pin: String) -> Unit,
+    onRetryFido2PinVerification: () -> Unit,
+    onSubmitPinSetUpFido2Verification: (pin: String) -> Unit,
+    onRetryPinSetUpFido2Verification: () -> Unit,
+    onDismissFido2Verification: () -> Unit,
 ) {
     when (dialogState) {
         is VaultAddEditState.DialogState.Loading -> {
@@ -306,6 +396,75 @@ private fun VaultAddEditItemDialogs(
                     message = R.string.bitwarden_autofill_service_alert2.asText(),
                 ),
                 onDismissRequest = onAutofillDismissRequest,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2Error -> {
+            BitwardenBasicDialog(
+                visibilityState = BasicDialogState.Shown(
+                    title = R.string.an_error_has_occurred.asText(),
+                    message = dialogState.message,
+                ),
+                onDismissRequest = onFido2ErrorDismiss,
+            )
+        }
+
+        is VaultAddEditState.DialogState.OverwritePasskeyConfirmationPrompt -> {
+            BitwardenOverwritePasskeyConfirmationDialog(
+                onConfirmClick = onConfirmOverwriteExistingPasskey,
+                onDismissRequest = onDismissRequest,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2MasterPasswordPrompt -> {
+            BitwardenMasterPasswordDialog(
+                onConfirmClick = onSubmitMasterPasswordFido2Verification,
+                onDismissRequest = onDismissFido2Verification,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2MasterPasswordError -> {
+            BitwardenBasicDialog(
+                visibilityState = BasicDialogState.Shown(
+                    title = null,
+                    message = R.string.invalid_master_password.asText(),
+                ),
+                onDismissRequest = onRetryFido2PasswordVerification,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2PinPrompt -> {
+            BitwardenPinDialog(
+                onConfirmClick = onSubmitPinFido2Verification,
+                onDismissRequest = onDismissFido2Verification,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2PinError -> {
+            BitwardenBasicDialog(
+                visibilityState = BasicDialogState.Shown(
+                    title = null,
+                    message = R.string.invalid_pin.asText(),
+                ),
+                onDismissRequest = onRetryFido2PinVerification,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2PinSetUpPrompt -> {
+            PinInputDialog(
+                onCancelClick = onDismissFido2Verification,
+                onSubmitClick = onSubmitPinSetUpFido2Verification,
+                onDismissRequest = onDismissFido2Verification,
+            )
+        }
+
+        is VaultAddEditState.DialogState.Fido2PinSetUpError -> {
+            BitwardenBasicDialog(
+                visibilityState = BasicDialogState.Shown(
+                    title = null,
+                    message = R.string.validation_field_required.asText(R.string.pin.asText()),
+                ),
+                onDismissRequest = onRetryPinSetUpFido2Verification,
             )
         }
 

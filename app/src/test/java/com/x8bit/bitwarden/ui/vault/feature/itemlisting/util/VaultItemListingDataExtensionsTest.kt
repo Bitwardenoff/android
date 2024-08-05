@@ -18,6 +18,7 @@ import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockCipherView
 import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockCollectionView
 import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockFido2CredentialAutofillView
 import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockFolderView
+import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockSdkFido2CredentialList
 import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockSendView
 import com.x8bit.bitwarden.data.vault.repository.model.VaultData
 import com.x8bit.bitwarden.ui.platform.base.util.asText
@@ -392,14 +393,15 @@ class VaultItemListingDataExtensionsTest {
             folderViewList = listOf(),
             sendViewList = listOf(),
         ).toViewState(
-            vaultFilterType = VaultFilterType.AllVaults,
             itemListingType = VaultItemListingState.ItemListingType.Vault.Folder("mockId-1"),
-            isIconLoadingDisabled = false,
+            vaultFilterType = VaultFilterType.AllVaults,
+            hasMasterPassword = true,
             baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+            isIconLoadingDisabled = false,
             autofillSelectionData = null,
             fido2CreationData = null,
-            hasMasterPassword = true,
             fido2CredentialAutofillViews = null,
+            isPremiumUser = true,
         )
 
         assertEquals(
@@ -455,6 +457,7 @@ class VaultItemListingDataExtensionsTest {
                 isDeleted = false,
                 cipherType = CipherType.LOGIN,
                 folderId = "mockId-1",
+                fido2Credentials = createMockSdkFido2CredentialList(number = 1),
             )
                 .copy(reprompt = CipherRepromptType.PASSWORD),
             createMockCipherView(
@@ -462,6 +465,7 @@ class VaultItemListingDataExtensionsTest {
                 isDeleted = false,
                 cipherType = CipherType.CARD,
                 folderId = "mockId-1",
+                fido2Credentials = createMockSdkFido2CredentialList(number = 2),
             ),
         )
         val fido2CredentialAutofillViews = listOf(
@@ -477,17 +481,18 @@ class VaultItemListingDataExtensionsTest {
             folderViewList = listOf(),
             sendViewList = listOf(),
         ).toViewState(
-            vaultFilterType = VaultFilterType.AllVaults,
             itemListingType = VaultItemListingState.ItemListingType.Vault.Folder("mockId-1"),
-            isIconLoadingDisabled = false,
+            vaultFilterType = VaultFilterType.AllVaults,
+            hasMasterPassword = true,
             baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+            isIconLoadingDisabled = false,
             autofillSelectionData = AutofillSelectionData(
                 type = AutofillSelectionData.Type.LOGIN,
                 uri = null,
             ),
             fido2CreationData = null,
-            hasMasterPassword = true,
             fido2CredentialAutofillViews = fido2CredentialAutofillViews,
+            isPremiumUser = true,
         )
 
         assertEquals(
@@ -545,14 +550,15 @@ class VaultItemListingDataExtensionsTest {
                 buttonText = R.string.add_an_item.asText(),
             ),
             vaultData.toViewState(
-                vaultFilterType = VaultFilterType.AllVaults,
                 itemListingType = VaultItemListingState.ItemListingType.Vault.Trash,
-                isIconLoadingDisabled = false,
+                vaultFilterType = VaultFilterType.AllVaults,
+                hasMasterPassword = true,
                 baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+                isIconLoadingDisabled = false,
                 autofillSelectionData = null,
                 fido2CreationData = null,
-                hasMasterPassword = true,
                 fido2CredentialAutofillViews = null,
+                isPremiumUser = true,
             ),
         )
 
@@ -564,16 +570,17 @@ class VaultItemListingDataExtensionsTest {
                 buttonText = R.string.add_an_item.asText(),
             ),
             vaultData.toViewState(
-                vaultFilterType = VaultFilterType.AllVaults,
                 itemListingType = VaultItemListingState.ItemListingType.Vault.Folder(
                     folderId = "folderId",
                 ),
-                isIconLoadingDisabled = false,
+                vaultFilterType = VaultFilterType.AllVaults,
+                hasMasterPassword = true,
                 baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+                isIconLoadingDisabled = false,
                 autofillSelectionData = null,
                 fido2CreationData = null,
-                hasMasterPassword = true,
                 fido2CredentialAutofillViews = null,
+                isPremiumUser = true,
             ),
         )
 
@@ -585,14 +592,15 @@ class VaultItemListingDataExtensionsTest {
                 buttonText = R.string.add_an_item.asText(),
             ),
             vaultData.toViewState(
-                vaultFilterType = VaultFilterType.AllVaults,
                 itemListingType = VaultItemListingState.ItemListingType.Vault.Login,
-                isIconLoadingDisabled = false,
+                vaultFilterType = VaultFilterType.AllVaults,
+                hasMasterPassword = true,
                 baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+                isIconLoadingDisabled = false,
                 autofillSelectionData = null,
                 fido2CreationData = null,
-                hasMasterPassword = true,
                 fido2CredentialAutofillViews = null,
+                isPremiumUser = true,
             ),
         )
 
@@ -604,17 +612,18 @@ class VaultItemListingDataExtensionsTest {
                 buttonText = R.string.add_an_item.asText(),
             ),
             vaultData.toViewState(
-                vaultFilterType = VaultFilterType.AllVaults,
                 itemListingType = VaultItemListingState.ItemListingType.Vault.Login,
-                isIconLoadingDisabled = false,
+                vaultFilterType = VaultFilterType.AllVaults,
+                hasMasterPassword = true,
                 baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+                isIconLoadingDisabled = false,
                 autofillSelectionData = AutofillSelectionData(
                     type = AutofillSelectionData.Type.LOGIN,
                     uri = "https://www.test.com",
                 ),
                 fido2CreationData = null,
-                hasMasterPassword = true,
                 fido2CredentialAutofillViews = null,
+                isPremiumUser = true,
             ),
         )
 
@@ -626,10 +635,11 @@ class VaultItemListingDataExtensionsTest {
                 buttonText = R.string.save_passkey_as_new_login.asText(),
             ),
             vaultData.toViewState(
-                vaultFilterType = VaultFilterType.AllVaults,
                 itemListingType = VaultItemListingState.ItemListingType.Vault.Login,
-                isIconLoadingDisabled = false,
+                vaultFilterType = VaultFilterType.AllVaults,
+                hasMasterPassword = true,
                 baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+                isIconLoadingDisabled = false,
                 autofillSelectionData = null,
                 fido2CreationData = Fido2CredentialRequest(
                     userId = "",
@@ -638,8 +648,8 @@ class VaultItemListingDataExtensionsTest {
                     signingInfo = SigningInfo(),
                     origin = "https://www.test.com",
                 ),
-                hasMasterPassword = true,
                 fido2CredentialAutofillViews = null,
+                isPremiumUser = true,
             ),
         )
     }
@@ -773,14 +783,15 @@ class VaultItemListingDataExtensionsTest {
         )
 
         val actual = vaultData.toViewState(
-            isIconLoadingDisabled = false,
-            baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
-            autofillSelectionData = null,
             itemListingType = VaultItemListingState.ItemListingType.Vault.Folder("1"),
             vaultFilterType = VaultFilterType.AllVaults,
-            fido2CreationData = null,
             hasMasterPassword = true,
+            baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+            isIconLoadingDisabled = false,
+            autofillSelectionData = null,
+            fido2CreationData = null,
             fido2CredentialAutofillViews = null,
+            isPremiumUser = true,
         )
 
         assertEquals(
@@ -815,14 +826,15 @@ class VaultItemListingDataExtensionsTest {
         )
 
         val actual = vaultData.toViewState(
-            isIconLoadingDisabled = false,
-            baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
-            autofillSelectionData = null,
             itemListingType = VaultItemListingState.ItemListingType.Vault.Collection("mockId-1"),
             vaultFilterType = VaultFilterType.AllVaults,
-            fido2CreationData = null,
             hasMasterPassword = true,
+            baseIconUrl = Environment.Us.environmentUrlData.baseIconUrl,
+            isIconLoadingDisabled = false,
+            autofillSelectionData = null,
+            fido2CreationData = null,
             fido2CredentialAutofillViews = null,
+            isPremiumUser = true,
         )
 
         assertEquals(

@@ -5,6 +5,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.x8bit.bitwarden.R
 import com.x8bit.bitwarden.data.auth.repository.AuthRepository
+import com.x8bit.bitwarden.data.auth.repository.model.UserState
 import com.x8bit.bitwarden.data.platform.repository.EnvironmentRepository
 import com.x8bit.bitwarden.data.platform.repository.model.Environment
 import com.x8bit.bitwarden.data.vault.repository.VaultRepository
@@ -16,6 +17,7 @@ import com.x8bit.bitwarden.ui.platform.components.model.AccountSummary
 import com.x8bit.bitwarden.ui.vault.feature.vault.util.toAccountSummaries
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
 import kotlinx.parcelize.Parcelize
@@ -40,21 +42,26 @@ class LandingViewModel @Inject constructor(
             isContinueButtonEnabled = authRepository.rememberedEmailAddress != null,
             isRememberMeEnabled = authRepository.rememberedEmailAddress != null,
             selectedEnvironmentType = environmentRepository.environment.type,
+            selectedEnvironmentLabel = environmentRepository.environment.label,
             dialog = null,
             accountSummaries = authRepository.userStateFlow.value?.toAccountSummaries().orEmpty(),
         ),
 ) {
 
     /**
-     * Returns the [AccountSummary] from the current state that matches the current email input,
-     * of `null` if there is no match.
+     * Returns the [AccountSummary] from the current state that matches the current email input and
+     * the the current environment, or `null` if there is no match.
      */
     private val matchingAccountSummary: AccountSummary?
         get() {
             val currentEmail = state.emailInput
+            val currentEnvironmentLabel = state.selectedEnvironmentLabel
             val accountSummaries = state.accountSummaries
             return accountSummaries
-                .find { it.email == currentEmail }
+                .find {
+                    it.email == currentEmail &&
+                        it.environmentLabel == currentEnvironmentLabel
+                }
                 ?.takeUnless { !it.isLoggedIn }
         }
 
@@ -76,6 +83,16 @@ class LandingViewModel @Inject constructor(
                 )
             }
             .launchIn(viewModelScope)
+
+        authRepository
+            .userStateFlow
+            .map { userState ->
+                userState?.activeAccount?.let(::mapToInternalActionOrNull)
+            }
+            .onEach { action ->
+                action?.let(::handleAction)
+            }
+            .launchIn(viewModelScope)
     }
 
     override fun handleAction(action: LandingAction) {
@@ -91,8 +108,15 @@ class LandingViewModel @Inject constructor(
             LandingAction.CreateAccountClick -> handleCreateAccountClicked()
             is LandingAction.DialogDismiss -> handleDialogDismiss()
             is LandingAction.RememberMeToggle -> handleRememberMeToggled(action)
-            is LandingAction.EmailInputChanged -> handleEmailInputUpdated(action)
+            is LandingAction.EmailInputChanged -> handleEmailInputChanged(action)
             is LandingAction.EnvironmentTypeSelect -> handleEnvironmentTypeSelect(action)
+            is LandingAction.Internal -> handleInternalActions(action)
+        }
+    }
+
+    private fun handleInternalActions(action: LandingAction.Internal) {
+        when (action) {
+            is LandingAction.Internal.UpdateEmailState -> handleInternalEmailStateUpdate(action)
             is LandingAction.Internal.UpdatedEnvironmentReceive -> {
                 handleUpdatedEnvironmentReceive(action)
             }
@@ -117,12 +141,19 @@ class LandingViewModel @Inject constructor(
         authRepository.switchAccount(userId = action.accountSummary.userId)
     }
 
-    private fun handleEmailInputUpdated(action: LandingAction.EmailInputChanged) {
-        val email = action.input
+    private fun handleEmailInputChanged(action: LandingAction.EmailInputChanged) {
+        updateEmailInput(action.input)
+    }
+
+    private fun handleInternalEmailStateUpdate(action: LandingAction.Internal.UpdateEmailState) {
+        updateEmailInput(action.emailInput)
+    }
+
+    private fun updateEmailInput(updatedInput: String) {
         mutableStateFlow.update {
             it.copy(
-                emailInput = email,
-                isContinueButtonEnabled = email.isNotBlank(),
+                emailInput = updatedInput,
+                isContinueButtonEnabled = updatedInput.isNotBlank(),
             )
         }
     }
@@ -195,8 +226,22 @@ class LandingViewModel @Inject constructor(
         mutableStateFlow.update {
             it.copy(
                 selectedEnvironmentType = action.environment.type,
+                selectedEnvironmentLabel = action.environment.label,
             )
         }
+    }
+
+    /**
+     * If the user state account is changed to an active but not "logged in" account we can
+     * pre-populate the email field with this account.
+     */
+    private fun mapToInternalActionOrNull(
+        activeAccount: UserState.Account,
+    ): LandingAction.Internal.UpdateEmailState? {
+        val activeUserNotLoggedIn = !activeAccount.isLoggedIn
+        val noPendingAdditions = !authRepository.hasPendingAccountAddition
+        return LandingAction.Internal.UpdateEmailState(activeAccount.email)
+            .takeIf { activeUserNotLoggedIn && noPendingAdditions }
     }
 }
 
@@ -209,6 +254,7 @@ data class LandingState(
     val isContinueButtonEnabled: Boolean,
     val isRememberMeEnabled: Boolean,
     val selectedEnvironmentType: Environment.Type,
+    val selectedEnvironmentLabel: String,
     val dialog: DialogState?,
     val accountSummaries: List<AccountSummary>,
 ) : Parcelable {
@@ -341,5 +387,10 @@ sealed class LandingAction {
         data class UpdatedEnvironmentReceive(
             val environment: Environment,
         ) : Internal()
+
+        /**
+         * Internal action to update the email input state from a non-user action
+         */
+        data class UpdateEmailState(val emailInput: String) : Internal()
     }
 }

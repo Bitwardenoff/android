@@ -71,6 +71,7 @@ import com.x8bit.bitwarden.data.auth.repository.model.SetPasswordResult
 import com.x8bit.bitwarden.data.auth.repository.model.SwitchAccountResult
 import com.x8bit.bitwarden.data.auth.repository.model.UserOrganizations
 import com.x8bit.bitwarden.data.auth.repository.model.ValidatePasswordResult
+import com.x8bit.bitwarden.data.auth.repository.model.ValidatePinResult
 import com.x8bit.bitwarden.data.auth.repository.model.VaultUnlockType
 import com.x8bit.bitwarden.data.auth.repository.model.VerifyOtpResult
 import com.x8bit.bitwarden.data.auth.repository.util.CaptchaCallbackTokenResult
@@ -98,6 +99,7 @@ import com.x8bit.bitwarden.data.vault.datasource.network.model.SyncResponseJson
 import com.x8bit.bitwarden.data.vault.datasource.network.model.createMockOrganization
 import com.x8bit.bitwarden.data.vault.datasource.network.model.createMockPolicy
 import com.x8bit.bitwarden.data.vault.datasource.sdk.VaultSdkSource
+import com.x8bit.bitwarden.data.vault.datasource.sdk.model.InitializeCryptoResult
 import com.x8bit.bitwarden.data.vault.repository.VaultRepository
 import com.x8bit.bitwarden.data.vault.repository.model.VaultUnlockData
 import com.x8bit.bitwarden.data.vault.repository.model.VaultUnlockResult
@@ -216,8 +218,6 @@ class AuthRepositoryTest {
         } returns mutableActivePolicyFlow
     }
 
-    private var elapsedRealtimeMillis = 123456789L
-
     private val repository = AuthRepositoryImpl(
         accountsService = accountsService,
         devicesService = devicesService,
@@ -236,7 +236,6 @@ class AuthRepositoryTest {
         dispatcherManager = dispatcherManager,
         pushManager = pushManager,
         policyManager = policyManager,
-        elapsedRealtimeMillisProvider = { elapsedRealtimeMillis },
     )
 
     @BeforeEach
@@ -4371,21 +4370,6 @@ class AuthRepositoryTest {
     }
 
     @Test
-    fun `updateLastActiveTime should update the last active time for the current user`() {
-        val userId = USER_ID_1
-        fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
-
-        assertNull(fakeAuthDiskSource.getLastActiveTimeMillis(userId = userId))
-
-        repository.updateLastActiveTime()
-
-        assertEquals(
-            elapsedRealtimeMillis,
-            fakeAuthDiskSource.getLastActiveTimeMillis(userId = userId),
-        )
-    }
-
-    @Test
     fun `getIsKnownDevice should return failure when service returns failure`() = runTest {
         coEvery {
             devicesService.getIsKnownDevice(EMAIL, UNIQUE_APP_ID)
@@ -4644,6 +4628,168 @@ class AuthRepositoryTest {
                 userId = userId,
                 passwordHash = passwordHash,
             )
+        }
+
+    @Test
+    fun `validatePin returns ValidatePinResult Error when no active account found`() = runTest {
+        val pin = "PIN"
+        fakeAuthDiskSource.userState = null
+
+        val result = repository.validatePin(pin = pin)
+
+        assertEquals(
+            ValidatePinResult.Error,
+            result,
+        )
+    }
+
+    @Test
+    fun `validatePin returns ValidatePinResult Error when no private key found`() = runTest {
+        val pin = "PIN"
+        fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
+        fakeAuthDiskSource.storePrivateKey(
+            userId = SINGLE_USER_STATE_1.activeUserId,
+            privateKey = null,
+        )
+
+        val result = repository.validatePin(pin = pin)
+
+        assertEquals(
+            ValidatePinResult.Error,
+            result,
+        )
+    }
+
+    @Test
+    fun `validatePin returns ValidatePinResult Error when no pin protected user key found`() =
+        runTest {
+            val pin = "PIN"
+            val privateKey = "privateKey"
+            fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
+            fakeAuthDiskSource.storePrivateKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                privateKey = privateKey,
+            )
+            fakeAuthDiskSource.storePinProtectedUserKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                pinProtectedUserKey = null,
+            )
+
+            val result = repository.validatePin(pin = pin)
+
+            assertEquals(
+                ValidatePinResult.Error,
+                result,
+            )
+        }
+
+    @Test
+    fun `validatePin returns ValidatePinResult Error when initialize crypto fails`() = runTest {
+        val pin = "PIN"
+        val privateKey = "privateKey"
+        val pinProtectedUserKey = "pinProtectedUserKey"
+        fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
+        fakeAuthDiskSource.storePrivateKey(
+            userId = SINGLE_USER_STATE_1.activeUserId,
+            privateKey = privateKey,
+        )
+        fakeAuthDiskSource.storePinProtectedUserKey(
+            userId = SINGLE_USER_STATE_1.activeUserId,
+            pinProtectedUserKey = pinProtectedUserKey,
+        )
+        coEvery {
+            vaultSdkSource.initializeCrypto(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                request = any(),
+            )
+        } returns Throwable().asFailure()
+
+        val result = repository.validatePin(pin = pin)
+
+        assertEquals(
+            ValidatePinResult.Error,
+            result,
+        )
+        coVerify {
+            vaultSdkSource.initializeCrypto(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                request = any(),
+            )
+        }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `validatePin returns ValidatePinResult Success with valid false when initialize cryto returns AuthenticationError`() =
+        runTest {
+            val pin = "PIN"
+            val privateKey = "privateKey"
+            val pinProtectedUserKey = "pinProtectedUserKey"
+            fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
+            fakeAuthDiskSource.storePrivateKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                privateKey = privateKey,
+            )
+            fakeAuthDiskSource.storePinProtectedUserKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                pinProtectedUserKey = pinProtectedUserKey,
+            )
+            coEvery {
+                vaultSdkSource.initializeCrypto(
+                    userId = SINGLE_USER_STATE_1.activeUserId,
+                    request = any(),
+                )
+            } returns InitializeCryptoResult.AuthenticationError.asSuccess()
+
+            val result = repository.validatePin(pin = pin)
+
+            assertEquals(
+                ValidatePinResult.Success(isValid = false),
+                result,
+            )
+            coVerify {
+                vaultSdkSource.initializeCrypto(
+                    userId = SINGLE_USER_STATE_1.activeUserId,
+                    request = any(),
+                )
+            }
+        }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `validatePin returns ValidatePinResult Success with valid true when initialize cryto returns Success`() =
+        runTest {
+            val pin = "PIN"
+            val privateKey = "privateKey"
+            val pinProtectedUserKey = "pinProtectedUserKey"
+            fakeAuthDiskSource.userState = SINGLE_USER_STATE_1
+            fakeAuthDiskSource.storePrivateKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                privateKey = privateKey,
+            )
+            fakeAuthDiskSource.storePinProtectedUserKey(
+                userId = SINGLE_USER_STATE_1.activeUserId,
+                pinProtectedUserKey = pinProtectedUserKey,
+            )
+            coEvery {
+                vaultSdkSource.initializeCrypto(
+                    userId = SINGLE_USER_STATE_1.activeUserId,
+                    request = any(),
+                )
+            } returns InitializeCryptoResult.Success.asSuccess()
+
+            val result = repository.validatePin(pin = pin)
+
+            assertEquals(
+                ValidatePinResult.Success(isValid = true),
+                result,
+            )
+            coVerify {
+                vaultSdkSource.initializeCrypto(
+                    userId = SINGLE_USER_STATE_1.activeUserId,
+                    request = any(),
+                )
+            }
         }
 
     @Test

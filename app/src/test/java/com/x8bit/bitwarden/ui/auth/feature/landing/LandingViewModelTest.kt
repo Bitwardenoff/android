@@ -5,6 +5,7 @@ import app.cash.turbine.test
 import com.x8bit.bitwarden.R
 import com.x8bit.bitwarden.data.auth.repository.AuthRepository
 import com.x8bit.bitwarden.data.auth.repository.model.UserState
+import com.x8bit.bitwarden.data.auth.repository.model.VaultUnlockType
 import com.x8bit.bitwarden.data.platform.repository.model.Environment
 import com.x8bit.bitwarden.data.platform.repository.util.FakeEnvironmentRepository
 import com.x8bit.bitwarden.data.vault.repository.VaultRepository
@@ -21,6 +22,7 @@ import io.mockk.verify
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class LandingViewModelTest : BaseViewModelTest() {
@@ -194,7 +196,7 @@ class LandingViewModelTest : BaseViewModelTest() {
 
     @Suppress("MaxLineLength")
     @Test
-    fun `ContinueButtonClick with an email input matching an existing account that is logged in should show the account already added dialog`() {
+    fun `ContinueButtonClick with an email input matching an existing account on same environment that is logged in should show the account already added dialog`() {
         val rememberedEmail = "active@bitwarden.com"
         val activeAccount = UserState.Account(
             userId = "activeUserId",
@@ -243,6 +245,63 @@ class LandingViewModelTest : BaseViewModelTest() {
             viewModel.stateFlow.value,
         )
     }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `ContinueButtonClick with an email input matching an existing account on different environment that is logged in should emit NavigateToLogin`() =
+        runTest {
+            val rememberedEmail = "active@bitwarden.com"
+            val activeAccount = UserState.Account(
+                userId = "activeUserId",
+                name = "name",
+                email = rememberedEmail,
+                avatarColorHex = "avatarColorHex",
+                environment = Environment.Us,
+                isPremium = true,
+                isLoggedIn = true,
+                isVaultUnlocked = true,
+                needsPasswordReset = false,
+                isBiometricsEnabled = false,
+                organizations = emptyList(),
+                needsMasterPassword = false,
+                trustedDevice = null,
+            )
+            val userState = UserState(
+                activeUserId = "activeUserId",
+                accounts = listOf(activeAccount),
+            )
+            val viewModel = createViewModel(
+                rememberedEmail = rememberedEmail,
+                userState = userState,
+            )
+            val accountSummaries = userState.toAccountSummaries()
+            val initialState = DEFAULT_STATE.copy(
+                emailInput = rememberedEmail,
+                isContinueButtonEnabled = true,
+                isRememberMeEnabled = true,
+                accountSummaries = accountSummaries,
+            )
+            assertEquals(
+                initialState,
+                viewModel.stateFlow.value,
+            )
+
+            viewModel.eventFlow.test {
+                viewModel.trySendAction(LandingAction.EnvironmentTypeSelect(Environment.Eu.type))
+                assertEquals(
+                    initialState.copy(
+                        selectedEnvironmentLabel = Environment.Eu.label,
+                        selectedEnvironmentType = Environment.Eu.type,
+                    ),
+                    viewModel.stateFlow.value,
+                )
+                viewModel.trySendAction(LandingAction.ContinueButtonClick)
+                assertEquals(
+                    LandingEvent.NavigateToLogin(rememberedEmail),
+                    awaitItem(),
+                )
+            }
+        }
 
     @Suppress("MaxLineLength")
     @Test
@@ -380,7 +439,10 @@ class LandingViewModelTest : BaseViewModelTest() {
             awaitItem()
             viewModel.trySendAction(LandingAction.EnvironmentTypeSelect(inputEnvironmentType))
             assertEquals(
-                DEFAULT_STATE.copy(selectedEnvironmentType = Environment.Type.EU),
+                DEFAULT_STATE.copy(
+                    selectedEnvironmentType = Environment.Type.EU,
+                    selectedEnvironmentLabel = Environment.Eu.label,
+                ),
                 awaitItem(),
             )
         }
@@ -397,6 +459,72 @@ class LandingViewModelTest : BaseViewModelTest() {
                 awaitItem(),
             )
         }
+    }
+
+    @Test
+    fun `Active Logged Out user causes email field to prepopulate`() = runTest {
+        val expectedEmail = "frodo@hobbit.on"
+        val userId = "1"
+
+        val userAccount: UserState.Account = UserState.Account(
+            userId = userId,
+            name = null,
+            email = expectedEmail,
+            avatarColorHex = "lorem",
+            environment = Environment.Us,
+            isPremium = false,
+            isLoggedIn = false,
+            isVaultUnlocked = false,
+            needsPasswordReset = false,
+            needsMasterPassword = false,
+            trustedDevice = null,
+            organizations = listOf(),
+            isBiometricsEnabled = false,
+            vaultUnlockType = VaultUnlockType.MASTER_PASSWORD,
+        )
+
+        val userState = UserState(
+            activeUserId = userId,
+            accounts = listOf(userAccount),
+        )
+
+        val viewModel = createViewModel(userState = userState)
+
+        assertEquals(expectedEmail, viewModel.stateFlow.value.emailInput)
+    }
+
+    @Test
+    fun `Email input will not change based on active user when adding new account`() = runTest {
+        val expectedEmail = "frodo@hobbit.on"
+        val userId = "1"
+
+        val userAccount: UserState.Account = UserState.Account(
+            userId = userId,
+            name = null,
+            email = expectedEmail,
+            avatarColorHex = "lorem",
+            environment = Environment.Us,
+            isPremium = false,
+            isLoggedIn = false,
+            isVaultUnlocked = false,
+            needsPasswordReset = false,
+            needsMasterPassword = false,
+            trustedDevice = null,
+            organizations = listOf(),
+            isBiometricsEnabled = false,
+            vaultUnlockType = VaultUnlockType.MASTER_PASSWORD,
+        )
+
+        val userState = UserState(
+            activeUserId = userId,
+            accounts = listOf(userAccount),
+        )
+
+        every { authRepository.hasPendingAccountAddition } returns true
+
+        val viewModel = createViewModel(userState = userState)
+
+        assertTrue(viewModel.stateFlow.value.emailInput.isEmpty())
     }
 
     //region Helper methods
@@ -426,6 +554,7 @@ class LandingViewModelTest : BaseViewModelTest() {
             isContinueButtonEnabled = false,
             isRememberMeEnabled = false,
             selectedEnvironmentType = Environment.Type.US,
+            selectedEnvironmentLabel = Environment.Us.label,
             dialog = null,
             accountSummaries = emptyList(),
         )

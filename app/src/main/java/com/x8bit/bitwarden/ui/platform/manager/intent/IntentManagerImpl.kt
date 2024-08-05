@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.MediaStore
 import android.provider.Settings
 import android.webkit.MimeTypeMap
@@ -19,6 +20,7 @@ import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.runtime.Composable
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.credentials.CredentialManager
 import com.x8bit.bitwarden.BuildConfig
 import com.x8bit.bitwarden.R
 import com.x8bit.bitwarden.data.autofill.util.toPendingIntentMutabilityFlag
@@ -50,6 +52,20 @@ private const val TEMP_CAMERA_IMAGE_DIR: String = "camera_temp"
  * @see IntentManager.createFido2CreationPendingIntent
  */
 const val EXTRA_KEY_USER_ID: String = "user_id"
+
+/**
+ * Key for the credential id included in FIDO 2 provider "get entries".
+ *
+ * @see IntentManager.createFido2GetCredentialPendingIntent
+ */
+const val EXTRA_KEY_CREDENTIAL_ID: String = "credential_id"
+
+/**
+ * Key for the cipher id included in FIDO 2 provider "get entries".
+ *
+ * @see IntentManager.createFido2GetCredentialPendingIntent
+ */
+const val EXTRA_KEY_CIPHER_ID: String = "cipher_id"
 
 /**
  * The default implementation of the [IntentManager] for simplifying the handling of Android
@@ -101,6 +117,12 @@ class IntentManagerImpl(
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
         intent.data = Uri.parse("package:" + context.packageName)
         startActivity(intent = intent)
+    }
+
+    override fun startCredentialManagerSettings(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            CredentialManager.create(context).createSettingsPendingIntent().send()
+        }
     }
 
     override fun launchUri(uri: Uri) {
@@ -201,6 +223,39 @@ class IntentManagerImpl(
         val intent = Intent(action)
             .setPackage(context.packageName)
             .putExtra(EXTRA_KEY_USER_ID, userId)
+
+        return PendingIntent.getActivity(
+            /* context = */ context,
+            /* requestCode = */ requestCode,
+            /* intent = */ intent,
+            /* flags = */ PendingIntent.FLAG_UPDATE_CURRENT.toPendingIntentMutabilityFlag(),
+        )
+    }
+
+    override fun createFido2GetCredentialPendingIntent(
+        action: String,
+        credentialId: String,
+        cipherId: String,
+        requestCode: Int,
+    ): PendingIntent {
+        val intent = Intent(action)
+            .setPackage(context.packageName)
+            .putExtra(EXTRA_KEY_CREDENTIAL_ID, credentialId)
+            .putExtra(EXTRA_KEY_CIPHER_ID, cipherId)
+
+        return PendingIntent.getActivity(
+            /* context = */ context,
+            /* requestCode = */ requestCode,
+            /* intent = */ intent,
+            /* flags = */ PendingIntent.FLAG_UPDATE_CURRENT.toPendingIntentMutabilityFlag(),
+        )
+    }
+
+    override fun createFido2UnlockPendingIntent(
+        action: String,
+        requestCode: Int,
+    ): PendingIntent {
+        val intent = Intent(action).setPackage(context.packageName)
 
         return PendingIntent.getActivity(
             /* context = */ context,

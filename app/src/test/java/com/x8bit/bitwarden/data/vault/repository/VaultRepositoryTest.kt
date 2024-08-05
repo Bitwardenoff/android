@@ -9,6 +9,7 @@ import com.bitwarden.core.InitOrgCryptoRequest
 import com.bitwarden.core.InitUserCryptoMethod
 import com.bitwarden.exporters.ExportFormat
 import com.bitwarden.fido.Fido2CredentialAutofillView
+import com.bitwarden.sdk.Fido2CredentialStore
 import com.bitwarden.send.SendType
 import com.bitwarden.send.SendView
 import com.bitwarden.vault.CipherView
@@ -24,7 +25,6 @@ import com.x8bit.bitwarden.data.auth.manager.UserLogoutManager
 import com.x8bit.bitwarden.data.auth.repository.util.toSdkParams
 import com.x8bit.bitwarden.data.platform.base.FakeDispatcherManager
 import com.x8bit.bitwarden.data.platform.datasource.disk.SettingsDiskSource
-import com.x8bit.bitwarden.data.platform.datasource.network.di.PlatformNetworkModule
 import com.x8bit.bitwarden.data.platform.manager.PushManager
 import com.x8bit.bitwarden.data.platform.manager.dispatcher.DispatcherManager
 import com.x8bit.bitwarden.data.platform.manager.model.SyncCipherDeleteData
@@ -116,7 +116,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -139,7 +138,6 @@ class VaultRepositoryTest {
         Instant.parse("2023-10-27T12:00:00Z"),
         ZoneOffset.UTC,
     )
-    private val json: Json = PlatformNetworkModule.providesJson()
     private val dispatcherManager: DispatcherManager = FakeDispatcherManager()
     private val userLogoutManager: UserLogoutManager = mockk {
         every { logout(any(), any()) } just runs
@@ -225,7 +223,6 @@ class VaultRepositoryTest {
         fileManager = fileManager,
         clock = clock,
         userLogoutManager = userLogoutManager,
-        json = json,
     )
 
     @BeforeEach
@@ -4255,6 +4252,42 @@ class VaultRepositoryTest {
                 )
             }
         }
+
+    @Test
+    fun `silentlyDiscoverCredentials should return result`() = runTest {
+        val userId = "userId"
+        val fido2CredentialStore: Fido2CredentialStore = mockk()
+        val relyingPartyId = "relyingPartyId"
+        val expected: Result<List<Fido2CredentialAutofillView>> = mockk()
+        coEvery {
+            vaultSdkSource.silentlyDiscoverCredentials(
+                userId = userId,
+                fido2CredentialStore = fido2CredentialStore,
+                relyingPartyId = relyingPartyId,
+            )
+        } returns expected
+
+        turbineScope {
+            val result = vaultRepository.silentlyDiscoverCredentials(
+                userId = userId,
+                fido2CredentialStore = fido2CredentialStore,
+                relyingPartyId = relyingPartyId,
+            )
+
+            assertEquals(
+                expected,
+                result,
+            )
+        }
+
+        coVerify {
+            vaultSdkSource.silentlyDiscoverCredentials(
+                userId = userId,
+                fido2CredentialStore = fido2CredentialStore,
+                relyingPartyId = relyingPartyId,
+            )
+        }
+    }
 
     //region Helper functions
 

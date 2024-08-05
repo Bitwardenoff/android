@@ -35,15 +35,18 @@ import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
 import io.mockk.verify
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @Suppress("LargeClass")
 class VaultLockManagerTest {
     private val fakeAuthDiskSource = FakeAuthDiskSource()
@@ -73,8 +76,8 @@ class VaultLockManagerTest {
         every { getVaultTimeoutStateFlow(any()) } returns mutableVaultTimeoutStateFlow
         every { getVaultTimeoutActionStateFlow(any()) } returns mutableVaultTimeoutActionStateFlow
     }
-
-    private var elapsedRealtimeMillis = 123456789L
+    private val testDispatcher = UnconfinedTestDispatcher()
+    private val fakeDispatcherManager = FakeDispatcherManager(unconfined = testDispatcher)
 
     private val vaultLockManager: VaultLockManager = VaultLockManagerImpl(
         authDiskSource = fakeAuthDiskSource,
@@ -84,8 +87,7 @@ class VaultLockManagerTest {
         appForegroundManager = fakeAppForegroundManager,
         userLogoutManager = userLogoutManager,
         trustedDeviceManager = trustedDeviceManager,
-        dispatcherManager = FakeDispatcherManager(),
-        elapsedRealtimeMillisProvider = { elapsedRealtimeMillis },
+        dispatcherManager = fakeDispatcherManager,
     )
 
     @Test
@@ -139,147 +141,18 @@ class VaultLockManagerTest {
         }
 
     @Test
-    fun `app going into background should update the current user's last active time`() {
+    fun `app coming into background subsequent times should perform timeout action if necessary`() {
+        setAccountTokens()
         fakeAuthDiskSource.userState = MOCK_USER_STATE
 
         // Start in a foregrounded state
         fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-
-        elapsedRealtimeMillis = 123L
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = 123L,
-        )
-    }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `app coming into foreground for the first time for Never timeout should clear existing times and not perform timeout action`() {
-        fakeAuthDiskSource.userState = MOCK_USER_STATE
-        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
-        mutableVaultTimeoutStateFlow.value = VaultTimeout.Never
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-        fakeAuthDiskSource.storeLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = 123L,
-        )
-        verifyUnlockedVaultBlocking(userId = USER_ID)
-        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-
-        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-    }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `app coming into foreground for the first time for OnAppRestart timeout should clear existing times and lock vaults if necessary`() {
-        fakeAuthDiskSource.userState = MOCK_USER_STATE
-        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
-        mutableVaultTimeoutStateFlow.value = VaultTimeout.OnAppRestart
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-        fakeAuthDiskSource.storeLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = 123L,
-        )
-        verifyUnlockedVaultBlocking(userId = USER_ID)
-        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-
-        assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-    }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `app coming into foreground for the first time for other timeout should clear existing times and lock vaults if necessary`() {
-        fakeAuthDiskSource.userState = MOCK_USER_STATE
-        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
-        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-        fakeAuthDiskSource.storeLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = 123L,
-        )
-        verifyUnlockedVaultBlocking(userId = USER_ID)
-        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-
-        assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-    }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `app coming into foreground for the first time for non-Never timeout should clear existing times and perform timeout action`() {
-        fakeAuthDiskSource.userState = MOCK_USER_STATE
-        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
-        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-        fakeAuthDiskSource.storeLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = 123L,
-        )
-        verifyUnlockedVaultBlocking(userId = USER_ID)
-        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-
-        assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-    }
-
-    @Suppress("MaxLineLength")
-    @Test
-    fun `app coming into foreground subsequent times should perform timeout action if necessary and not clear existing times`() {
-        fakeAuthDiskSource.userState = MOCK_USER_STATE
-
-        // Start in a foregrounded state
-        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
-        fakeAuthDiskSource.assertLastActiveTimeMillis(
-            userId = USER_ID,
-            lastActiveTimeMillis = null,
-        )
-
-        // Set the last active time to 2 minutes and the current time to 8 minutes, so only times
-        // beyond 6 minutes perform their action.
-        val lastActiveTime = 2 * 60 * 1000L
-        elapsedRealtimeMillis = 8 * 60 * 1000L
 
         // Will be used within each loop to reset the test to a suitable initial state.
         fun resetTest(vaultTimeout: VaultTimeout) {
             clearVerifications(userLogoutManager)
             mutableVaultTimeoutStateFlow.value = vaultTimeout
-            fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
-            fakeAuthDiskSource.storeLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = lastActiveTime,
-            )
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
             verifyUnlockedVaultBlocking(userId = USER_ID)
             assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
         }
@@ -289,7 +162,9 @@ class VaultLockManagerTest {
         MOCK_TIMEOUTS.forEach { vaultTimeout ->
             resetTest(vaultTimeout = vaultTimeout)
 
-            fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
 
             when (vaultTimeout) {
                 // After 6 minutes (or action should not be performed)
@@ -314,10 +189,6 @@ class VaultLockManagerTest {
             }
 
             verify(exactly = 0) { userLogoutManager.softLogout(any()) }
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = lastActiveTime,
-            )
         }
 
         // Test Logout action
@@ -325,7 +196,9 @@ class VaultLockManagerTest {
         MOCK_TIMEOUTS.forEach { vaultTimeout ->
             resetTest(vaultTimeout = vaultTimeout)
 
-            fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
 
             when (vaultTimeout) {
                 // After 6 minutes (or action should not be performed)
@@ -350,18 +223,155 @@ class VaultLockManagerTest {
                     verify(exactly = 1) { userLogoutManager.softLogout(USER_ID) }
                 }
             }
-
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = lastActiveTime,
-            )
         }
     }
 
     @Suppress("MaxLineLength")
     @Test
-    fun `switching users should perform lock actions for each user if necessary and reset their last active times`() {
+    fun `app coming into foreground for the first time for Never timeout should not perform timeout action`() {
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.Never
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+        verifyUnlockedVaultBlocking(userId = USER_ID)
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `app coming into foreground for the first time for OnAppRestart timeout should lock vaults if necessary`() {
+        setAccountTokens()
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.OnAppRestart
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+        verifyUnlockedVaultBlocking(userId = USER_ID)
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
+    }
+
+    @Test
+    fun `app coming into foreground for the first time for other timeout should do nothing`() {
+        setAccountTokens()
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+        verifyUnlockedVaultBlocking(userId = USER_ID)
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `app coming into foreground for the first time for non-Never timeout should clear existing times and perform timeout action`() {
+        setAccountTokens()
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
+    }
+
+    @Test
+    fun `Verify Checking for timeout should take place for a user with logged in state`() {
+        setAccountTokens()
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOGOUT
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+        verifyUnlockedVaultBlocking(userId = USER_ID)
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        verify(exactly = 1) { settingsRepository.getVaultTimeoutActionStateFlow(USER_ID) }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `Verify Checking for timeout should not take place for a user who is already in the soft logged out state`() {
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOGOUT
+        mutableVaultTimeoutStateFlow.value = VaultTimeout.ThirtyMinutes
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+        verifyUnlockedVaultBlocking(userId = USER_ID)
+        assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+
+        verify(exactly = 0) { settingsRepository.getVaultTimeoutActionStateFlow(USER_ID) }
+    }
+
+    @Test
+    fun `app coming into foreground subsequent times should do nothing`() {
+        setAccountTokens()
+        fakeAuthDiskSource.userState = MOCK_USER_STATE
+
+        // Start in a foregrounded state
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+
+        // Will be used within each loop to reset the test to a suitable initial state.
+        fun resetTest(vaultTimeout: VaultTimeout) {
+            mutableVaultTimeoutStateFlow.value = vaultTimeout
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.BACKGROUNDED
+            clearVerifications(userLogoutManager)
+            verifyUnlockedVaultBlocking(userId = USER_ID)
+            assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+        }
+
+        // Test Lock action
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOCK
+        MOCK_TIMEOUTS.forEach { vaultTimeout ->
+            resetTest(vaultTimeout = vaultTimeout)
+
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
+
+            // Vault is never locked while foregrounded, no matter the timeout.
+            assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+            verify(exactly = 0) { userLogoutManager.softLogout(any()) }
+        }
+
+        // Test Logout action
+        mutableVaultTimeoutActionStateFlow.value = VaultTimeoutAction.LOGOUT
+        MOCK_TIMEOUTS.forEach { vaultTimeout ->
+            resetTest(vaultTimeout = vaultTimeout)
+
+            fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
+
+            // Vault is never locked while foregrounded, no matter the timeout.
+            assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
+            verify(exactly = 0) { userLogoutManager.softLogout(any()) }
+        }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `switching users should perform lock actions or start a timer for each user if necessary`() {
         val userId2 = "mockId-2"
+        setAccountTokens(listOf(USER_ID, userId2))
+        fakeAppForegroundManager.appForegroundState = AppForegroundState.FOREGROUNDED
         fakeAuthDiskSource.userState = UserStateJson(
             activeUserId = USER_ID,
             accounts = mapOf(
@@ -370,23 +380,10 @@ class VaultLockManagerTest {
             ),
         )
 
-        // Set the last active time to 2 minutes and the current time to 8 minutes, so only times
-        // beyond 6 minutes perform their action.
-        val lastActiveTime = 2 * 60 * 1000L
-        elapsedRealtimeMillis = 8 * 60 * 1000L
-
         // Will be used within each loop to reset the test to a suitable initial state.
         fun resetTest(vaultTimeout: VaultTimeout) {
             clearVerifications(userLogoutManager)
             mutableVaultTimeoutStateFlow.value = vaultTimeout
-            fakeAuthDiskSource.storeLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = lastActiveTime,
-            )
-            fakeAuthDiskSource.storeLastActiveTimeMillis(
-                userId = userId2,
-                lastActiveTimeMillis = lastActiveTime,
-            )
             verifyUnlockedVaultBlocking(userId = USER_ID)
             verifyUnlockedVaultBlocking(userId = userId2)
             assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
@@ -398,13 +395,14 @@ class VaultLockManagerTest {
         MOCK_TIMEOUTS.forEach { vaultTimeout ->
             resetTest(vaultTimeout = vaultTimeout)
 
+            val activeUserCheck = fakeAuthDiskSource.userState?.activeUserId == USER_ID
+            val activeUserId = if (activeUserCheck) userId2 else USER_ID
+            val inactiveUserId = if (activeUserCheck) USER_ID else userId2
             fakeAuthDiskSource.userState = fakeAuthDiskSource.userState?.copy(
-                activeUserId = if (fakeAuthDiskSource.userState?.activeUserId == USER_ID) {
-                    userId2
-                } else {
-                    USER_ID
-                },
+                activeUserId = activeUserId,
             )
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
 
             when (vaultTimeout) {
                 // After 6 minutes (or action should not be performed)
@@ -416,8 +414,8 @@ class VaultLockManagerTest {
                 VaultTimeout.FourHours,
                 is VaultTimeout.Custom,
                 -> {
-                    assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-                    assertTrue(vaultLockManager.isVaultUnlocked(userId2))
+                    assertTrue(vaultLockManager.isVaultUnlocked(activeUserId))
+                    assertTrue(vaultLockManager.isVaultUnlocked(inactiveUserId))
                 }
 
                 // Before 6 minutes
@@ -425,20 +423,12 @@ class VaultLockManagerTest {
                 VaultTimeout.OneMinute,
                 VaultTimeout.FiveMinutes,
                 -> {
-                    assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
-                    assertFalse(vaultLockManager.isVaultUnlocked(userId2))
+                    assertTrue(vaultLockManager.isVaultUnlocked(activeUserId))
+                    assertFalse(vaultLockManager.isVaultUnlocked(inactiveUserId))
                 }
             }
 
             verify(exactly = 0) { userLogoutManager.softLogout(any()) }
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = elapsedRealtimeMillis,
-            )
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = userId2,
-                lastActiveTimeMillis = elapsedRealtimeMillis,
-            )
         }
 
         // Test Logout action
@@ -446,13 +436,14 @@ class VaultLockManagerTest {
         MOCK_TIMEOUTS.forEach { vaultTimeout ->
             resetTest(vaultTimeout = vaultTimeout)
 
+            val activeUserCheck = fakeAuthDiskSource.userState?.activeUserId == USER_ID
+            val activeUserId = if (activeUserCheck) userId2 else USER_ID
+            val inactiveUserId = if (activeUserCheck) USER_ID else userId2
             fakeAuthDiskSource.userState = fakeAuthDiskSource.userState?.copy(
-                activeUserId = if (fakeAuthDiskSource.userState?.activeUserId == USER_ID) {
-                    userId2
-                } else {
-                    USER_ID
-                },
+                activeUserId = activeUserId,
             )
+            // Advance by 6 minutes. Only actions with a timeout less than this will be triggered.
+            testDispatcher.scheduler.advanceTimeBy(delayTimeMillis = 6 * 60 * 1000L)
 
             when (vaultTimeout) {
                 // After 6 minutes (or action should not be performed)
@@ -464,8 +455,8 @@ class VaultLockManagerTest {
                 VaultTimeout.FourHours,
                 is VaultTimeout.Custom,
                 -> {
-                    assertTrue(vaultLockManager.isVaultUnlocked(USER_ID))
-                    assertTrue(vaultLockManager.isVaultUnlocked(userId2))
+                    assertTrue(vaultLockManager.isVaultUnlocked(activeUserId))
+                    assertTrue(vaultLockManager.isVaultUnlocked(inactiveUserId))
                     verify(exactly = 0) { userLogoutManager.softLogout(any()) }
                 }
 
@@ -474,21 +465,12 @@ class VaultLockManagerTest {
                 VaultTimeout.OneMinute,
                 VaultTimeout.FiveMinutes,
                 -> {
-                    assertFalse(vaultLockManager.isVaultUnlocked(USER_ID))
-                    assertFalse(vaultLockManager.isVaultUnlocked(userId2))
-                    verify(exactly = 1) { userLogoutManager.softLogout(USER_ID) }
-                    verify(exactly = 1) { userLogoutManager.softLogout(userId2) }
+                    assertTrue(vaultLockManager.isVaultUnlocked(activeUserId))
+                    assertFalse(vaultLockManager.isVaultUnlocked(inactiveUserId))
+                    verify(exactly = 0) { userLogoutManager.softLogout(activeUserId) }
+                    verify(exactly = 1) { userLogoutManager.softLogout(inactiveUserId) }
                 }
             }
-
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = USER_ID,
-                lastActiveTimeMillis = elapsedRealtimeMillis,
-            )
-            fakeAuthDiskSource.assertLastActiveTimeMillis(
-                userId = userId2,
-                lastActiveTimeMillis = elapsedRealtimeMillis,
-            )
         }
     }
 
@@ -1506,6 +1488,19 @@ class VaultLockManagerTest {
 
     private fun verifyUnlockedVaultBlocking(userId: String) {
         runBlocking { verifyUnlockedVault(userId = userId) }
+    }
+
+    // region helper functions
+    private fun setAccountTokens(userIds: List<String> = listOf(USER_ID)) {
+        userIds.forEach { userId ->
+            fakeAuthDiskSource.storeAccountTokens(
+                userId = userId,
+                accountTokens = AccountTokensJson(
+                    accessToken = "access-$userId",
+                    refreshToken = "refresh-$userId",
+                ),
+            )
+        }
     }
 }
 

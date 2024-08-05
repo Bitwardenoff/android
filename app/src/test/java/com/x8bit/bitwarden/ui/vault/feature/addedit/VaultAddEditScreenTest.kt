@@ -39,6 +39,7 @@ import com.x8bit.bitwarden.data.vault.datasource.sdk.model.createMockCipherView
 import com.x8bit.bitwarden.ui.autofill.fido2.manager.Fido2CompletionManager
 import com.x8bit.bitwarden.ui.platform.base.BaseComposeTest
 import com.x8bit.bitwarden.ui.platform.base.util.asText
+import com.x8bit.bitwarden.ui.platform.manager.biometrics.BiometricsManager
 import com.x8bit.bitwarden.ui.platform.manager.exit.ExitManager
 import com.x8bit.bitwarden.ui.platform.manager.intent.IntentManager
 import com.x8bit.bitwarden.ui.platform.manager.permissions.FakePermissionManager
@@ -59,6 +60,7 @@ import com.x8bit.bitwarden.ui.vault.model.VaultCollection
 import com.x8bit.bitwarden.ui.vault.model.VaultIdentityTitle
 import com.x8bit.bitwarden.ui.vault.model.VaultItemCipherType
 import io.mockk.every
+import io.mockk.invoke
 import io.mockk.just
 import io.mockk.mockk
 import io.mockk.runs
@@ -98,6 +100,9 @@ class VaultAddEditScreenTest : BaseComposeTest() {
     private val fido2CompletionManager: Fido2CompletionManager = mockk {
         every { completeFido2Registration(any()) } just runs
     }
+    private val biometricsManager: BiometricsManager = mockk {
+        every { isUserVerificationSupported } returns true
+    }
 
     @Before
     fun setup() {
@@ -116,6 +121,7 @@ class VaultAddEditScreenTest : BaseComposeTest() {
                 exitManager = exitManager,
                 intentManager = intentManager,
                 fido2CompletionManager = fido2CompletionManager,
+                biometricsManager = biometricsManager,
             )
         }
     }
@@ -193,12 +199,246 @@ class VaultAddEditScreenTest : BaseComposeTest() {
     }
 
     @Test
-    fun `on CompleteFido2Create even should invoke Fido2CompletionManager`() {
+    fun `on CompleteFido2Create event should invoke Fido2CompletionManager`() {
         val result = Fido2RegisterCredentialResult.Success(
             registrationResponse = "mockRegistrationResponse",
         )
         mutableEventFlow.tryEmit(VaultAddEditEvent.CompleteFido2Registration(result = result))
         verify { fido2CompletionManager.completeFido2Registration(result) }
+    }
+
+    @Test
+    fun `Fido2Error dialog should display based on state`() {
+        mutableStateFlow.value = DEFAULT_STATE_LOGIN.copy(
+            dialog = VaultAddEditState.DialogState.Fido2Error("mockMessage".asText()),
+        )
+
+        composeTestRule
+            .onAllNodesWithText("mockMessage")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `fido2 master password prompt dialog should display based on state`() {
+        val dialogTitle = "Master password confirmation"
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogTitle).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2MasterPasswordPrompt)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogTitle)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Cancel")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.DismissFido2VerificationDialogClick,
+            )
+        }
+
+        composeTestRule
+            .onAllNodesWithText(text = "Master password")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performTextInput("password")
+        composeTestRule
+            .onAllNodesWithText(text = "Submit")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.MasterPasswordFido2VerificationSubmit(
+                    password = "password",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `fido2 master password error dialog should display based on state`() {
+        val dialogMessage = "Invalid master password. Try again."
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogMessage).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2MasterPasswordError)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogMessage)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Ok")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.RetryFido2PasswordVerificationClick,
+            )
+        }
+    }
+
+    @Test
+    fun `fido2 pin prompt dialog should display based on state`() {
+        val dialogTitle = "Verify PIN"
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogTitle).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2PinPrompt)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogTitle)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Cancel")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.DismissFido2VerificationDialogClick,
+            )
+        }
+
+        composeTestRule
+            .onAllNodesWithText(text = "PIN")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performTextInput("PIN")
+        composeTestRule
+            .onAllNodesWithText(text = "Submit")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2VerificationSubmit(
+                    pin = "PIN",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `fido2 pin error dialog should display based on state`() {
+        val dialogMessage = "Invalid PIN. Try again."
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogMessage).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2PinError)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogMessage)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Ok")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.RetryFido2PinVerificationClick,
+            )
+        }
+    }
+
+    @Test
+    fun `fido2 pin set up prompt dialog should display based on state`() {
+        val dialogMessage = "Enter your PIN code."
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogMessage).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2PinSetUpPrompt)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogMessage)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Cancel")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.DismissFido2VerificationDialogClick,
+            )
+        }
+
+        composeTestRule
+            .onAllNodesWithText(text = "PIN")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performTextInput("PIN")
+        composeTestRule
+            .onAllNodesWithText(text = "Submit")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2SetUpSubmit(
+                    pin = "PIN",
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `fido2 pin set up error dialog should display based on state`() {
+        val dialogMessage = "The PIN field is required."
+        composeTestRule.onNode(isDialog()).assertDoesNotExist()
+        composeTestRule.onNodeWithText(dialogMessage).assertDoesNotExist()
+
+        mutableStateFlow.update {
+            it.copy(dialog = VaultAddEditState.DialogState.Fido2PinSetUpError)
+        }
+
+        composeTestRule
+            .onNodeWithText(dialogMessage)
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+
+        composeTestRule
+            .onAllNodesWithText(text = "Ok")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+        verify {
+            viewModel.trySendAction(
+                VaultAddEditAction.Common.PinFido2SetUpRetryClick,
+            )
+        }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `clicking dismiss dialog on Fido2Error dialog should send Fido2ErrorDialogDismissed action`() {
+        mutableStateFlow.value = DEFAULT_STATE_LOGIN.copy(
+            dialog = VaultAddEditState.DialogState.Fido2Error("mockMessage".asText()),
+        )
+
+        composeTestRule
+            .onAllNodesWithText("Ok")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.Fido2ErrorDialogDismissed) }
     }
 
     @Test
@@ -2876,6 +3116,130 @@ class VaultAddEditScreenTest : BaseComposeTest() {
             .performClick()
 
         composeTestRule.assertNoDialogExists()
+    }
+
+    @Test
+    fun `Fido2UserVerification event should prompt for user verification`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = any(),
+                onCancel = any(),
+                onLockOut = any(),
+                onError = any(),
+                onNotSupported = any(),
+            )
+        } just runs
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(true))
+        verify {
+            biometricsManager.promptUserVerification(any(), any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `Fido2UserVerification onSuccess should send UserVerificationSuccess action`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = captureLambda(),
+                onCancel = any(),
+                onLockOut = any(),
+                onError = any(),
+                onNotSupported = any(),
+            )
+        } answers {
+            lambda<() -> Unit>().invoke()
+        }
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(isRequired = true))
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationSuccess) }
+    }
+
+    @Test
+    fun `Fido2UserVerification onCancel should send UserVerificationCancelled action`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = any(),
+                onCancel = captureLambda(),
+                onLockOut = any(),
+                onError = any(),
+                onNotSupported = any(),
+            )
+        } answers {
+            lambda<() -> Unit>().invoke()
+        }
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(isRequired = true))
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationCancelled) }
+    }
+
+    @Test
+    fun `Fido2UserVerification onLockout should send UserVerificationLockOut action`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = any(),
+                onCancel = any(),
+                onLockOut = captureLambda(),
+                onError = any(),
+                onNotSupported = any(),
+            )
+        } answers {
+            lambda<() -> Unit>().invoke()
+        }
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(isRequired = true))
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationLockOut) }
+    }
+
+    @Test
+    fun `Fido2UserVerification onError should send UserVerificationFail action`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = any(),
+                onCancel = any(),
+                onLockOut = any(),
+                onError = captureLambda(),
+                onNotSupported = any(),
+            )
+        } answers { lambda<() -> Unit>().invoke() }
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(isRequired = true))
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationFail) }
+    }
+
+    @Test
+    fun `Fido2UserVerification onNotSupported should send UserVerificationNotSupported action`() {
+        every {
+            biometricsManager.promptUserVerification(
+                onSuccess = any(),
+                onCancel = any(),
+                onLockOut = any(),
+                onError = any(),
+                onNotSupported = captureLambda(),
+            )
+        } answers { lambda<() -> Unit>().invoke() }
+        mutableEventFlow.tryEmit(VaultAddEditEvent.Fido2UserVerification(isRequired = true))
+        verify { viewModel.trySendAction(VaultAddEditAction.Common.UserVerificationNotSupported) }
+    }
+
+    @Suppress("MaxLineLength")
+    @Test
+    fun `OverwritePasskeyConfirmationPrompt should display based on dialog state and send ConfirmOverwriteExistingPasskeyClick on Ok click`() {
+        val stateWithDialog = DEFAULT_STATE_LOGIN
+            .copy(dialog = VaultAddEditState.DialogState.OverwritePasskeyConfirmationPrompt)
+
+        mutableStateFlow.value = stateWithDialog
+
+        composeTestRule
+            .onNodeWithText("Overwrite passkey?")
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+        composeTestRule
+            .onNodeWithText("This item already contains a passkey. Are you sure you want to overwrite the current passkey?")
+            .assertIsDisplayed()
+            .assert(hasAnyAncestor(isDialog()))
+        composeTestRule
+            .onAllNodesWithText("Ok")
+            .filterToOne(hasAnyAncestor(isDialog()))
+            .performClick()
+
+        verify {
+            viewModel.trySendAction(VaultAddEditAction.Common.ConfirmOverwriteExistingPasskeyClick)
+        }
     }
 
     //region Helper functions

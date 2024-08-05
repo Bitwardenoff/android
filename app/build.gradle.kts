@@ -65,8 +65,13 @@ android {
 
         // Beta and Release variants are identical except beta has a different package name
         create("beta") {
-            initWith(buildTypes.getByName("release"))
             applicationIdSuffix = ".beta"
+            isDebuggable = false
+            isMinifyEnabled = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
         release {
             isDebuggable = false
@@ -253,7 +258,7 @@ kover {
 tasks {
     getByName("check") {
         // Add detekt with type resolution to check
-        dependsOn("detektMain")
+        dependsOn("detekt")
     }
 
     withType<io.gitlab.arturbosch.detekt.Detekt>().configureEach {
