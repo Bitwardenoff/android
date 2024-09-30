@@ -1,17 +1,14 @@
 package com.x8bit.bitwarden.ui.platform.feature.settings.accountsecurity
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +30,7 @@ import androidx.compose.ui.window.Dialog
 import com.x8bit.bitwarden.R
 import com.x8bit.bitwarden.ui.platform.components.button.BitwardenFilledButton
 import com.x8bit.bitwarden.ui.platform.components.button.BitwardenTextButton
+import com.x8bit.bitwarden.ui.platform.components.divider.BitwardenHorizontalDivider
 import com.x8bit.bitwarden.ui.platform.components.field.BitwardenTextField
 import com.x8bit.bitwarden.ui.platform.components.util.maxDialogHeight
 import com.x8bit.bitwarden.ui.platform.theme.BitwardenTheme
@@ -69,7 +67,7 @@ fun PinInputDialog(
                 )
                 // This background is necessary for the dialog to not be transparent.
                 .background(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    color = BitwardenTheme.colorScheme.background.primary,
                     shape = RoundedCornerShape(28.dp),
                 ),
             horizontalAlignment = Alignment.End,
@@ -80,16 +78,11 @@ fun PinInputDialog(
                     .padding(24.dp)
                     .fillMaxWidth(),
                 text = stringResource(id = R.string.enter_pin),
-                color = MaterialTheme.colorScheme.onSurface,
+                color = BitwardenTheme.colorScheme.text.primary,
                 style = BitwardenTheme.typography.headlineSmall,
             )
             if (scrollState.canScrollBackward) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-                )
+                BitwardenHorizontalDivider()
             }
             Column(
                 modifier = Modifier
@@ -102,7 +95,7 @@ fun PinInputDialog(
                         .padding(24.dp)
                         .fillMaxWidth(),
                     text = stringResource(id = R.string.set_pin_description),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = BitwardenTheme.colorScheme.text.primary,
                     style = BitwardenTheme.typography.bodyMedium,
                 )
 
@@ -119,12 +112,7 @@ fun PinInputDialog(
                 )
             }
             if (scrollState.canScrollForward) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .background(MaterialTheme.colorScheme.outlineVariant),
-                )
+                BitwardenHorizontalDivider()
             }
             Row(
                 verticalAlignment = Alignment.CenterVertically,

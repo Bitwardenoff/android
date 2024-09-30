@@ -3,7 +3,6 @@ package com.x8bit.bitwarden.ui.platform.components.text
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -32,11 +31,11 @@ fun BitwardenPolicyWarningText(
         text = text,
         textAlign = textAlign,
         style = style,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        color = BitwardenTheme.colorScheme.text.primary,
         modifier = modifier
             .border(
                 width = 1.dp,
-                color = MaterialTheme.colorScheme.primary,
+                color = BitwardenTheme.colorScheme.text.primary,
                 shape = RoundedCornerShape(4.dp),
             )
             .padding(8.dp),

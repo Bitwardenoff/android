@@ -6,7 +6,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -46,7 +45,7 @@ fun BitwardenCircularCountdownIndicator(
         CircularProgressIndicator(
             progress = { progressAnimate },
             modifier = Modifier.size(size = 30.dp),
-            color = MaterialTheme.colorScheme.primary,
+            color = BitwardenTheme.colorScheme.icon.secondary,
             strokeWidth = 3.dp,
             strokeCap = StrokeCap.Round,
         )
@@ -54,7 +53,7 @@ fun BitwardenCircularCountdownIndicator(
         Text(
             text = timeLeftSeconds.toString(),
             style = BitwardenTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = BitwardenTheme.colorScheme.text.primary,
         )
     }
 }
