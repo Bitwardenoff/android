@@ -11,16 +11,22 @@ sealed class Fido2GetCredentialsResult {
      * Indicates credentials were successfully queried.
      *
      * @param options Original request options provided by the relying party.
-     * @param credentials Collection of [Fido2CredentialAutofillView]s matching the original request
-     * parameters. This may be an empty list if no matching values were found.
+     * @param credentials Map of Cipher Names and their [Fido2CredentialAutofillView]s matching the
+     * original request parameters. This may be an empty map if no matching values were found.
      */
     data class Success(
+        val userId: String,
         val options: BeginGetPublicKeyCredentialOption,
-        val credentials: List<Fido2CredentialAutofillView>,
+        val credentials: Map<String, Fido2CredentialAutofillView>,
     ) : Fido2GetCredentialsResult()
 
     /**
      * Indicates an error was encountered when querying for matching credentials.
      */
     data object Error : Fido2GetCredentialsResult()
+
+    /**
+     * Indicates the user has cancelled credential discovery.
+     */
+    data object Cancelled : Fido2GetCredentialsResult()
 }

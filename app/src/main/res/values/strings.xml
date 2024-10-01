@@ -1009,4 +1009,7 @@ Do you want to switch to this account?</string>
   <string name="error_connecting_with_the_duo_service_use_a_different_two_step_login_method_or_contact_duo_for_assistance">Error connecting with the Duo service. Use a different two-step login method or contact Duo for assistance.</string>
   <string name="master_password_hint_not_specified">Master password hint</string>
   <string name="master_password_important_hint">Important: Your master password cannot be recovered if you forget it! 12 characters minimum.</string>
+  <string name="unlock_vault_for_x">Unlock vault for %s</string>
+  <string name="check_x_for_passkeys">Check %s for passkeys</string>
+  <string name="passkey_operation_failed_because_passkey_does_not_exist">Passkey operation failed because passkey does not exist</string>
 </resources>
