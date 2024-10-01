@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
@@ -162,7 +161,7 @@ private fun PortraitQRCodeContent(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize()
-                .background(color = Color.Black.copy(alpha = .4f))
+                .background(color = BitwardenTheme.colorScheme.background.scrim)
                 .padding(horizontal = 16.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
@@ -202,7 +201,7 @@ private fun LandscapeQRCodeContent(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxSize()
-                .background(color = Color.Black.copy(alpha = .4f))
+                .background(color = BitwardenTheme.colorScheme.background.scrim)
                 .padding(horizontal = 16.dp)
                 .navigationBarsPadding()
                 .verticalScroll(rememberScrollState()),
@@ -311,7 +310,7 @@ private fun QrCodeSquare(
     modifier: Modifier = Modifier,
     squareOutlineSize: Dp,
 ) {
-    val color = MaterialTheme.colorScheme.primary
+    val color = BitwardenTheme.colorScheme.text.primary
 
     Box(
         contentAlignment = Alignment.Center,

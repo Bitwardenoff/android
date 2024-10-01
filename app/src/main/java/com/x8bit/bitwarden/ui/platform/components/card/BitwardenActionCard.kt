@@ -14,7 +14,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -23,6 +22,7 @@ import androidx.compose.ui.graphics.vector.VectorPainter
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.x8bit.bitwarden.R
+import com.x8bit.bitwarden.ui.platform.components.card.color.bitwardenCardColors
 import com.x8bit.bitwarden.ui.platform.components.util.rememberVectorPainter
 import com.x8bit.bitwarden.ui.platform.theme.BitwardenTheme
 
@@ -42,9 +42,7 @@ fun BitwardenActionCard(
         onClick = onCardClicked,
         shape = RoundedCornerShape(size = 16.dp),
         modifier = modifier,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-        ),
+        colors = bitwardenCardColors(),
         elevation = CardDefaults.elevatedCardElevation(),
     ) {
         Row(
@@ -55,7 +53,7 @@ fun BitwardenActionCard(
             Icon(
                 painter = actionIcon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = BitwardenTheme.colorScheme.icon.secondary,
                 modifier = Modifier.size(24.dp),
             )
             Spacer(modifier = Modifier.width(16.dp))
@@ -65,13 +63,13 @@ fun BitwardenActionCard(
                 Text(
                     text = actionText,
                     style = BitwardenTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = BitwardenTheme.colorScheme.text.primary,
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = callToActionText,
                     style = BitwardenTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = BitwardenTheme.colorScheme.text.primary,
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
@@ -111,7 +109,7 @@ private fun ActionCardWithTrailingPreview() {
                 Icon(
                     painter = rememberVectorPainter(id = R.drawable.ic_navigate_next),
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = BitwardenTheme.colorScheme.icon.primary,
                 )
             },
         )
