@@ -221,12 +221,6 @@
         android:name="org.adblockplus.browser.beta"
         android:maxLongVersionCode="10000000000" />
     <compatibility-package
-        android:name="org.bromite.bromite"
-        android:maxLongVersionCode="10000000000" />
-    <compatibility-package
-        android:name="org.bromite.chromium"
-        android:maxLongVersionCode="10000000000" />
-    <compatibility-package
         android:name="org.chromium.chrome"
         android:maxLongVersionCode="10000000000" />
     <compatibility-package
