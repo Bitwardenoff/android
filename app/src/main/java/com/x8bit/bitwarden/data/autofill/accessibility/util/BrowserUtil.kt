@@ -118,8 +118,6 @@ private val ACCESSIBILITY_SUPPORTED_BROWSERS = listOf(
         // 2nd = Legacy (before v2)
         possibleUrlFieldIds = listOf("url_bar", "url_bar_title"),
     ),
-    Browser(packageName = "org.bromite.bromite", urlFieldId = "url_bar"),
-    Browser(packageName = "org.bromite.chromium", urlFieldId = "url_bar"),
     Browser(packageName = "org.chromium.chrome", urlFieldId = "url_bar"),
     Browser(packageName = "org.codeaurora.swe.browser", urlFieldId = "url_bar"),
     Browser(packageName = "org.cromite.cromite", urlFieldId = "url_bar"),

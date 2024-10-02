@@ -72,6 +72,10 @@
           {
             "build": "userdebug",
             "cert_fingerprint_sha256": "19:75:B2:F1:71:77:BC:89:A5:DF:F3:1F:9E:64:A6:CA:E2:81:A5:3D:C1:D1:D5:9B:1D:14:7F:E1:C8:2A:FA:00"
+          },
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "A8:56:48:50:79:BC:B3:57:BF:BE:69:BA:19:A9:BA:43:CD:0A:D9:AB:22:67:52:C7:80:B6:88:8A:FD:48:21:6B"
           }
         ]
       }
@@ -472,6 +476,58 @@
           {
             "build": "release",
             "cert_fingerprint_sha256": "1D:A9:CB:AE:2D:CC:C6:A5:8D:6C:94:7B:E9:4C:DB:B7:33:D6:5D:A4:D1:77:0F:A1:4A:53:64:CB:4A:28:EB:49"
+          }
+        ]
+      }
+    },
+    {
+      "type": "android",
+      "info": {
+        "package_name": "org.mozilla.fennec_fdroid",
+        "signatures": [
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "06:66:53:58:EF:D8:BA:05:BE:23:6A:47:A1:2C:B0:95:8D:7D:75:DD:93:9D:77:C2:B3:1F:53:98:53:7E:BD:C5"
+          }
+        ]
+      }
+    },
+    {
+      "type": "android",
+      "info": {
+        "package_name": "us.spotco.fennec_dos",
+        "signatures": [
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "26:0E:0A:49:67:8C:78:B7:0C:02:D6:53:7A:DD:3B:6D:C0:A1:71:71:BB:DE:8C:E7:5F:D4:02:6A:8A:3E:18:D2"
+          },
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "FF:81:F5:BE:56:39:65:94:EE:E7:0F:EF:28:32:25:6E:15:21:41:22:E2:BA:9C:ED:D2:60:05:FF:D4:BC:AA:A8"
+          }
+        ]
+      }
+    },
+    {
+      "type": "android",
+      "info": {
+        "package_name": "us.spotco.mulch",
+        "signatures": [
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "26:0E:0A:49:67:8C:78:B7:0C:02:D6:53:7A:DD:3B:6D:C0:A1:71:71:BB:DE:8C:E7:5F:D4:02:6A:8A:3E:18:D2"
+          }
+        ]
+      }
+    },
+    {
+      "type": "android",
+      "info": {
+        "package_name": "org.cromite.cromite",
+        "signatures": [
+          {
+            "build": "release",
+            "cert_fingerprint_sha256": "63:3F:A4:1D:82:11:D6:D0:91:6A:81:9B:89:66:8C:6D:E9:2E:64:23:2D:A6:7F:9D:16:FD:81:C3:B7:E9:23:FF"
           }
         ]
       }
